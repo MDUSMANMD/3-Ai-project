@@ -52,7 +52,7 @@ def call_ai(prompt):
     }
 
     data = {
-        "model": "deepseek-ai/deepseek-v3.2",
+        "model": "o3-mini",
         "messages": [
             {"role": "user", "content": prompt}
         ],
