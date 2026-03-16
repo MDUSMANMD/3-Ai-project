@@ -211,4 +211,4 @@ Give a short clear answer.
 
 
 st.markdown("---")
-st.markdown("### 👨‍💻 Created by **MOHAMMAED USMAN** 🚀")
+st.markdown("### 👨‍💻 Created by **MOHAMMED USMAN** 🚀")
