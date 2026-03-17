@@ -5,25 +5,36 @@ import requests
 import PyPDF2
 import re
 from dotenv import load_dotenv
+from docx import Document
 
 load_dotenv()
 
 API_KEY = os.getenv("NVIDIA_API_KEY")
 
-st.set_page_config(page_title="AI Resume Reviewer", page_icon="📄")
+st.set_page_config(page_title="AI Document Analyzer", page_icon="📄")
 
-st.title("📄 AI Resume Reviewer")
-st.markdown("### 🚀 Smart Resume Analysis Tool")
-st.markdown("Upload your resume and get instant AI feedback")
+st.title("📄 AI Document Analyzer")
+st.markdown("### 🚀 Smart AI Analysis for Any Document")
+st.markdown("Upload any document and get instant AI insights")
 
 if not API_KEY:
     st.error("API key missing in .env file")
     st.stop()
 
-uploaded_file = st.file_uploader("📤 Upload Resume", type=["pdf","txt"])
-job_role = st.text_input("🎯 Target Job Role")
-analyze = st.button("🔍 Analyze Resume")
+uploaded_file = st.file_uploader(
+    "📤 Upload Document",
+    type=["pdf", "txt", "docx"]
+)
 
+doc_type = st.selectbox(
+    "🧠 Select Analysis Type",
+    ["General Analysis", "Summary", "Key Points", "Detailed Review"]
+)
+
+analyze = st.button("🔍 Analyze Document")
+
+
+# ---------- FILE READERS ----------
 
 def read_pdf(file):
     reader = PyPDF2.PdfReader(file)
@@ -35,12 +46,21 @@ def read_pdf(file):
     return text
 
 
+def read_docx(file):
+    doc = Document(file)
+    return "\n".join([para.text for para in doc.paragraphs])
+
+
 def read_file(file):
     if file.type == "application/pdf":
         return read_pdf(io.BytesIO(file.read()))
+    elif file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        return read_docx(file)
     else:
         return file.read().decode()
 
+
+# ---------- AI CALL ----------
 
 def call_ai(prompt):
 
@@ -56,8 +76,8 @@ def call_ai(prompt):
         "messages": [
             {"role": "user", "content": prompt}
         ],
-        "temperature": 0.4,
-        "max_tokens": 700
+        "temperature": 0.5,
+        "max_tokens": 1200
     }
 
     response = requests.post(url, headers=headers, json=data)
@@ -69,138 +89,99 @@ def call_ai(prompt):
     return "AI error"
 
 
+# ---------- FORMATTER ----------
+
 def clean_format(text):
 
-    text = text.replace("***", "")
-    text = text.replace("**", "")
+    text = text.replace("***", "").replace("**", "")
 
     lines = text.split("\n")
-
     formatted = ""
 
     for line in lines:
-
         line = line.strip()
-
         if not line:
             continue
 
         if line.startswith("-") or line.startswith("*"):
             formatted += f"<li>{line[1:].strip()}</li>"
-
         elif re.match(r"\d+\.", line):
             formatted += f"<li>{line}</li>"
-
         else:
             formatted += f"<li><b>{line}</b></li>"
 
     return f"<ul style='font-size:18px; line-height:1.7'>{formatted}</ul>"
 
 
+# ---------- MAIN ANALYSIS ----------
+
 if analyze and uploaded_file:
 
-    resume_text = read_file(uploaded_file)
+    document_text = read_file(uploaded_file)
+
+    if doc_type == "Summary":
+        instruction = "Summarize this document clearly."
+    elif doc_type == "Key Points":
+        instruction = "Extract key points in bullet format."
+    elif doc_type == "Detailed Review":
+        instruction = """
+        Analyze this document in detail.
+
+        Give:
+        - Strengths
+        - Weaknesses
+        - Suggestions
+        """
+    else:
+        instruction = "Analyze this document and provide useful insights."
 
     prompt = f"""
-Act as an expert recruiter.
+You are an AI document expert.
 
-Analyze this resume for {job_role if job_role else "general jobs"}.
+{instruction}
 
-Return format:
-
-Rating: X/5
-
-Strengths:
-- bullet points
-
-Weaknesses:
-- bullet points
-
-Improvements:
-- bullet points
-
-Resume:
-{resume_text}
+Document:
+{document_text}
 """
 
-    with st.spinner("🤖 AI analyzing resume..."):
+    with st.spinner("🤖 AI analyzing document..."):
         analysis = call_ai(prompt)
 
     st.session_state.analysis = analysis
 
-    rating_match = re.search(r'(\d)/5', analysis)
-
     st.markdown("---")
-    st.header("⭐ Resume Quality Score")
+    st.header("📊 AI Analysis Result")
 
-    if rating_match:
+    st.markdown(
+        f"<div style='font-size:18px; line-height:1.8'>{analysis}</div>",
+        unsafe_allow_html=True
+    )
 
-        stars = int(rating_match.group(1))
-        star_display = "⭐" * stars + "☆" * (5 - stars)
 
-        if stars == 5:
-            quality = "🌟 Excellent Resume"
-        elif stars == 4:
-            quality = "✅ Strong Resume"
-        elif stars == 3:
-            quality = "⚠️ Average Resume"
-        elif stars == 2:
-            quality = "❗ Needs Improvement"
-        else:
-            quality = "🚫 Poor Resume"
-
-        st.markdown(
-            f"<h1 style='text-align:center;font-size:50px'>{star_display}</h1>",
-            unsafe_allow_html=True
-        )
-
-        st.markdown(
-            f"<h3 style='text-align:center;color:orange'>{quality}</h3>",
-            unsafe_allow_html=True
-        )
-
-    st.markdown("---")
-    st.header("📊 Resume Analysis")
-
-    strengths = re.search(r"Strengths:(.*)Weaknesses:", analysis, re.S)
-    weaknesses = re.search(r"Weaknesses:(.*)Improvements:", analysis, re.S)
-    improvements = re.search(r"Improvements:(.*)", analysis, re.S)
-
-    if strengths:
-        st.subheader("💪 Strengths")
-        st.markdown(clean_format(strengths.group(1)), unsafe_allow_html=True)
-
-    if weaknesses:
-        st.subheader("⚠️ Weaknesses")
-        st.markdown(clean_format(weaknesses.group(1)), unsafe_allow_html=True)
-
-    if improvements:
-        st.subheader("🚀 Improvements")
-        st.markdown(clean_format(improvements.group(1)), unsafe_allow_html=True)
-
+# ---------- CHATBOT ----------
 
 if "analysis" in st.session_state:
 
     st.markdown("---")
-    st.header("🤖 Resume Improvement Chatbot")
+    st.header("🤖 Ask About This Document")
 
-    question = st.text_input("Ask AI how to improve your resume")
+    question = st.text_input("Ask anything about your document")
 
     if st.button("Ask AI"):
 
         prompt = f"""
-You are a resume coach.
+You are an AI assistant.
 
-Resume analysis:
+Document analysis:
 {st.session_state.analysis}
 
 User question:
 {question}
 
-Give a short clear answer.
+Give a clear and helpful answer.
 """
 
-        with st.spinner("🤖 AI thinking..."):
+        with st.spinner("🤖 Thinking..."):
             answer = call_ai(prompt)
 
         st.markdown("### 🤖 AI Response")
@@ -209,6 +190,8 @@ Give a short clear answer.
             unsafe_allow_html=True
         )
 
+
+# ---------- FOOTER ----------
 
 st.markdown("---")
 st.markdown("### 👨‍💻 Created by **MOHAMMED.USMAN** 🚀")
