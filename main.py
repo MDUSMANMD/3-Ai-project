@@ -3,12 +3,11 @@ import io
 import os
 import requests
 import PyPDF2
-import re
 import base64
 from dotenv import load_dotenv
 from docx import Document
 
-# ✅ PDF LIBRARY
+# PDF
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
@@ -16,62 +15,23 @@ from reportlab.lib.styles import getSampleStyleSheet
 load_dotenv()
 API_KEY = os.getenv("NVIDIA_API_KEY")
 
-# ---------- PAGE ----------
-st.set_page_config(page_title="AI Document & Image Analyzer", page_icon="📄")
+st.set_page_config(page_title="AI Study Assistant", page_icon="📚")
 
-st.title("📄🖼️ AI Document & Image Analyzer")
-st.markdown("### 🚀 Analyze Documents and Images using AI")
+st.title("📚 AI Study Assistant")
+st.markdown("### 🚀 Learn Smarter with AI")
 
 if not API_KEY:
-    st.error("API key missing in .env file")
+    st.error("API key missing")
     st.stop()
 
-# ---------- INPUT ----------
-uploaded_file = st.file_uploader(
-    "📤 Upload File",
-    type=["pdf", "txt", "docx", "png", "jpg", "jpeg"]
+# ---------- MODE ----------
+mode = st.sidebar.selectbox(
+    "Select Feature",
+    ["📄 Analyzer", "🎓 Exam Helper", "🧠 Quiz Generator", "📊 Study Planner"]
 )
 
-doc_type = st.selectbox(
-    "🧠 Select Analysis Type",
-    ["General Analysis", "Summary", "Key Points", "Detailed Review"]
-)
-
-analyze = st.button("🔍 Analyze")
-
-# ---------- FILE READERS ----------
-def read_pdf(file):
-    reader = PyPDF2.PdfReader(file)
-    text = ""
-    for page in reader.pages:
-        t = page.extract_text()
-        if t:
-            text += t
-    return text
-
-
-def read_docx(file):
-    doc = Document(file)
-    return "\n".join([p.text for p in doc.paragraphs])
-
-
-def read_file(file):
-    if file.type == "application/pdf":
-        return read_pdf(io.BytesIO(file.read()))
-    elif file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-        return read_docx(file)
-    else:
-        return file.read().decode()
-
-
-# ---------- IMAGE ENCODE ----------
-def encode_image(file):
-    return base64.b64encode(file.read()).decode("utf-8")
-
-
-# ---------- AI CALL ----------
+# ---------- COMMON AI FUNCTION ----------
 def call_ai(prompt):
-
     url = "https://integrate.api.nvidia.com/v1/chat/completions"
 
     headers = {
@@ -81,9 +41,7 @@ def call_ai(prompt):
 
     data = {
         "model": "deepseek-ai/deepseek-v3.2",
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
+        "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.5,
         "max_tokens": 1200
     }
@@ -92,27 +50,22 @@ def call_ai(prompt):
         response = requests.post(url, headers=headers, json=data)
 
         if response.status_code != 200:
-            return f"API Error {response.status_code}: {response.text}"
+            return f"Error {response.status_code}: {response.text}"
 
-        result = response.json()
-
-        if "choices" in result:
-            return result["choices"][0]["message"]["content"]
-
-        return "Unexpected API response"
+        return response.json()["choices"][0]["message"]["content"]
 
     except Exception as e:
-        return f"Error: {str(e)}"
+        return str(e)
 
-
-# ---------- PDF GENERATOR ----------
+# ---------- PDF ----------
 def generate_pdf(content):
-
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
 
     elements = []
+    elements.append(Paragraph("<b>AI Generated Report</b>", styles["Title"]))
+    elements.append(Spacer(1, 20))
 
     for line in content.split("\n"):
         elements.append(Paragraph(line, styles["Normal"]))
@@ -120,136 +73,135 @@ def generate_pdf(content):
 
     doc.build(elements)
     buffer.seek(0)
-
     return buffer
 
+# ---------- FILE READ ----------
+def read_pdf(file):
+    reader = PyPDF2.PdfReader(file)
+    text = ""
+    for page in reader.pages:
+        t = page.extract_text()
+        if t:
+            text += t
+    return text
 
-# ---------- MAIN ----------
-if analyze and uploaded_file:
+def read_docx(file):
+    doc = Document(file)
+    return "\n".join([p.text for p in doc.paragraphs])
 
-    file_type = uploaded_file.type
-
-    # ---------- IMAGE ----------
-    if "image" in file_type:
-
-        st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
-
-        encoded_img = encode_image(uploaded_file)
-
-        prompt = f"""
-You are an AI image analyzer.
-
-Analyze this image.
-
-Give:
-- Description
-- Key details
-- Insights
-
-Image (base64):
-{encoded_img}
-"""
-
-    # ---------- DOCUMENT ----------
+def read_file(file):
+    if file.type == "application/pdf":
+        return read_pdf(io.BytesIO(file.read()))
+    elif "word" in file.type:
+        return read_docx(file)
     else:
+        return file.read().decode()
 
-        document_text = read_file(uploaded_file)
+# ---------- MODE 1: ANALYZER ----------
+if mode == "📄 Analyzer":
 
-        if doc_type == "Summary":
-            instruction = "Summarize this document clearly."
-        elif doc_type == "Key Points":
-            instruction = "Extract key points."
-        elif doc_type == "Detailed Review":
-            instruction = """
-Analyze this document in detail.
+    file = st.file_uploader("Upload File", type=["pdf", "txt", "docx", "png", "jpg"])
 
-Give:
-- Strengths
-- Weaknesses
-- Suggestions
+    if st.button("Analyze") and file:
+
+        if "image" in file.type:
+            img = base64.b64encode(file.read()).decode()
+
+            prompt = f"""
+Analyze this image and describe clearly.
+
+Image:
+{img}
 """
         else:
-            instruction = "Analyze this document and provide insights."
+            text = read_file(file)
 
-        prompt = f"""
-You are an expert AI document analyzer.
+            prompt = f"""
+Analyze this document and give:
 
-{instruction}
+Summary
+Key Points
+Insights
 
-Format as a professional report:
-
-Title: AI Analysis Report
-
-Summary:
-...
-
-Key Points:
-...
-
-Insights:
-...
-
-Document:
-{document_text}
+{text}
 """
 
-    # ---------- AI PROCESS ----------
-    with st.spinner("🤖 AI analyzing..."):
-        analysis = call_ai(prompt)
+        result = call_ai(prompt)
 
-    if "API Error" in analysis or "Error" in analysis:
-        st.error(analysis)
-        st.stop()
+        st.write(result)
 
-    st.session_state.analysis = analysis
+        st.download_button("📥 Download PDF", generate_pdf(result), "report.pdf")
 
-    st.markdown("---")
-    st.header("📊 AI Result")
+# ---------- MODE 2: EXAM HELPER ----------
+elif mode == "🎓 Exam Helper":
 
-    st.markdown(
-        f"<div style='font-size:18px; line-height:1.8'>{analysis}</div>",
-        unsafe_allow_html=True
-    )
+    subject = st.text_input("Subject")
+    question = st.text_area("Enter Question")
 
-    # ---------- PDF DOWNLOAD ----------
-    pdf_file = generate_pdf(analysis)
-
-    st.download_button(
-        label="📄 Download PDF Report",
-        data=pdf_file,
-        file_name="AI_Analysis_Report.pdf",
-        mime="application/pdf"
-    )
-
-
-# ---------- CHATBOT ----------
-if "analysis" in st.session_state:
-
-    st.markdown("---")
-    st.header("🤖 Ask About It")
-
-    question = st.text_input("Ask anything about your file")
-
-    if st.button("Ask AI"):
+    if st.button("Get Answer"):
 
         prompt = f"""
-Analysis:
-{st.session_state.analysis}
+You are a teacher.
+
+Explain clearly for students.
+
+Subject: {subject}
 
 Question:
 {question}
+
+Give:
+- Simple explanation
+- Key points
+- Example
 """
 
-        with st.spinner("🤖 Thinking..."):
-            answer = call_ai(prompt)
+        result = call_ai(prompt)
 
-        if "Error" in answer:
-            st.error(answer)
-        else:
-            st.markdown("### 🤖 AI Response")
-            st.write(answer)
+        st.write(result)
 
+        st.download_button("📥 Download Notes", generate_pdf(result), "notes.pdf")
+
+# ---------- MODE 3: QUIZ ----------
+elif mode == "🧠 Quiz Generator":
+
+    topic = st.text_input("Enter Topic")
+
+    if st.button("Generate Quiz"):
+
+        prompt = f"""
+Create 5 MCQs on {topic}.
+
+Include:
+Question
+Options A B C D
+Correct Answer
+"""
+
+        result = call_ai(prompt)
+
+        st.write(result)
+
+# ---------- MODE 4: STUDY PLANNER ----------
+elif mode == "📊 Study Planner":
+
+    subject = st.text_input("Subject")
+    days = st.slider("Days to prepare", 1, 30, 7)
+
+    if st.button("Create Plan"):
+
+        prompt = f"""
+Create a {days}-day study plan for {subject}.
+
+Make it simple and effective for exams.
+"""
+
+        result = call_ai(prompt)
+
+        st.write(result)
+
+        st.download_button("📥 Download Plan", generate_pdf(result), "study_plan.pdf")
 
 # ---------- FOOTER ----------
 st.markdown("---")
-st.markdown("### 👨‍💻 Created by **MOHAMMED.USMAN** 🚀")
+st.markdown("### 👨‍💻 Created by **MOHAMMED USMAN** 🚀")
