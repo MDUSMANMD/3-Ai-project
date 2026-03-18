@@ -4,6 +4,7 @@ import os
 import requests
 import PyPDF2
 import re
+import base64
 from dotenv import load_dotenv
 from docx import Document
 
@@ -11,41 +12,43 @@ from docx import Document
 load_dotenv()
 API_KEY = os.getenv("NVIDIA_API_KEY")
 
-# ---------- PAGE CONFIG ----------
-st.set_page_config(page_title="AI Document Analyzer", page_icon="📄")
+# ---------- PAGE ----------
+st.set_page_config(page_title="AI Document & Image Analyzer", page_icon="📄")
 
-st.title("📄 AI Document Analyzer")
-st.markdown("### 🚀 Smart AI Analysis for Any Document")
-st.markdown("Upload any document and get instant AI insights")
+st.title("📄🖼️ AI Document & Image Analyzer")
+st.markdown("### 🚀 Analyze Documents and Images using AI")
 
 if not API_KEY:
     st.error("API key missing in .env file")
     st.stop()
 
 # ---------- INPUT ----------
-uploaded_file = st.file_uploader("📤 Upload Document", type=["pdf", "txt", "docx"])
+uploaded_file = st.file_uploader(
+    "📤 Upload File",
+    type=["pdf", "txt", "docx", "png", "jpg", "jpeg"]
+)
 
 doc_type = st.selectbox(
     "🧠 Select Analysis Type",
     ["General Analysis", "Summary", "Key Points", "Detailed Review"]
 )
 
-analyze = st.button("🔍 Analyze Document")
+analyze = st.button("🔍 Analyze")
 
 # ---------- FILE READERS ----------
 def read_pdf(file):
     reader = PyPDF2.PdfReader(file)
     text = ""
     for page in reader.pages:
-        page_text = page.extract_text()
-        if page_text:
-            text += page_text
+        t = page.extract_text()
+        if t:
+            text += t
     return text
 
 
 def read_docx(file):
     doc = Document(file)
-    return "\n".join([para.text for para in doc.paragraphs])
+    return "\n".join([p.text for p in doc.paragraphs])
 
 
 def read_file(file):
@@ -57,7 +60,12 @@ def read_file(file):
         return file.read().decode()
 
 
-# ---------- AI CALL (FIXED) ----------
+# ---------- IMAGE TO BASE64 ----------
+def encode_image(file):
+    return base64.b64encode(file.read()).decode("utf-8")
+
+
+# ---------- AI CALL ----------
 def call_ai(prompt):
 
     url = "https://integrate.api.nvidia.com/v1/chat/completions"
@@ -68,7 +76,7 @@ def call_ai(prompt):
     }
 
     data = {
-        "model": "deepseek-ai/deepseek-v3.2",  # ✅ FIXED MODEL
+        "model": "deepseek-ai/deepseek-v3.2",
         "messages": [
             {"role": "user", "content": prompt}
         ],
@@ -87,69 +95,90 @@ def call_ai(prompt):
         if "choices" in result:
             return result["choices"][0]["message"]["content"]
 
-        return "Unexpected API response format"
+        return "Unexpected API response"
 
     except Exception as e:
         return f"Error: {str(e)}"
 
 
-# ---------- FORMATTER ----------
-def clean_format(text):
-
-    text = text.replace("***", "").replace("**", "")
-
-    lines = text.split("\n")
-    formatted = ""
-
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-
-        if line.startswith("-") or line.startswith("*"):
-            formatted += f"<li>{line[1:].strip()}</li>"
-        elif re.match(r"\d+\.", line):
-            formatted += f"<li>{line}</li>"
-        else:
-            formatted += f"<li><b>{line}</b></li>"
-
-    return f"<ul style='font-size:18px; line-height:1.7'>{formatted}</ul>"
+# ---------- DOWNLOAD ----------
+def generate_download(content):
+    return content.encode("utf-8")
 
 
 # ---------- MAIN ----------
 if analyze and uploaded_file:
 
-    document_text = read_file(uploaded_file)
+    file_type = uploaded_file.type
 
-    if doc_type == "Summary":
-        instruction = "Summarize this document clearly in simple language."
-    elif doc_type == "Key Points":
-        instruction = "Extract key points in bullet format."
-    elif doc_type == "Detailed Review":
-        instruction = """
-        Analyze this document in detail.
+    # ---------- IMAGE CASE ----------
+    if "image" in file_type:
 
-        Give:
-        - Strengths
-        - Weaknesses
-        - Suggestions
-        """
+        st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
+
+        encoded_img = encode_image(uploaded_file)
+
+        prompt = f"""
+You are an AI image analyzer.
+
+Analyze this image based on base64 data.
+
+Give:
+- Description
+- Key details
+- Insights
+
+Image (base64):
+{encoded_img}
+"""
+
+    # ---------- DOCUMENT CASE ----------
     else:
-        instruction = "Analyze this document and provide useful insights."
 
-    prompt = f"""
+        document_text = read_file(uploaded_file)
+
+        if doc_type == "Summary":
+            instruction = "Summarize this document clearly."
+        elif doc_type == "Key Points":
+            instruction = "Extract key points."
+        elif doc_type == "Detailed Review":
+            instruction = """
+            Analyze this document in detail.
+
+            Give:
+            - Strengths
+            - Weaknesses
+            - Suggestions
+            """
+        else:
+            instruction = "Analyze this document and provide insights."
+
+        prompt = f"""
 You are an expert AI document analyzer.
 
 {instruction}
+
+Format as a report:
+
+Title: Analysis Report
+
+Summary:
+...
+
+Key Points:
+...
+
+Insights:
+...
 
 Document:
 {document_text}
 """
 
-    with st.spinner("🤖 AI analyzing document..."):
+    # ---------- AI PROCESS ----------
+    with st.spinner("🤖 AI analyzing..."):
         analysis = call_ai(prompt)
 
-    # ❌ HANDLE ERRORS SAFELY
     if "API Error" in analysis or "Error" in analysis:
         st.error(analysis)
         st.stop()
@@ -157,11 +186,18 @@ Document:
     st.session_state.analysis = analysis
 
     st.markdown("---")
-    st.header("📊 AI Analysis Result")
+    st.header("📊 AI Result")
 
     st.markdown(
         f"<div style='font-size:18px; line-height:1.8'>{analysis}</div>",
         unsafe_allow_html=True
+    )
+
+    # ---------- DOWNLOAD ----------
+    st.download_button(
+        "📥 Download Report",
+        generate_download(analysis),
+        "AI_Analysis.txt"
     )
 
 
@@ -169,35 +205,27 @@ Document:
 if "analysis" in st.session_state:
 
     st.markdown("---")
-    st.header("🤖 Ask About This Document")
+    st.header("🤖 Ask About It")
 
-    question = st.text_input("Ask anything about your document")
+    question = st.text_input("Ask anything")
 
     if st.button("Ask AI"):
 
         prompt = f"""
-You are an AI assistant.
-
-Document analysis:
+Analysis:
 {st.session_state.analysis}
 
-User question:
+Question:
 {question}
-
-Give a clear and helpful answer.
 """
 
         with st.spinner("🤖 Thinking..."):
             answer = call_ai(prompt)
 
-        if "API Error" in answer or "Error" in answer:
+        if "Error" in answer:
             st.error(answer)
         else:
-            st.markdown("### 🤖 AI Response")
-            st.markdown(
-                f"<div style='font-size:18px; line-height:1.7'>{answer}</div>",
-                unsafe_allow_html=True
-            )
+            st.markdown(answer)
 
 
 # ---------- FOOTER ----------
