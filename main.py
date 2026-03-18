@@ -7,7 +7,6 @@ import base64
 from dotenv import load_dotenv
 from docx import Document
 
-# PDF
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
@@ -16,70 +15,88 @@ load_dotenv()
 API_KEY = os.getenv("NVIDIA_API_KEY")
 
 # ---------- PAGE ----------
-st.set_page_config(page_title="AI Super Assistant", page_icon="🚀")
+st.set_page_config(page_title="NovaMind AI", page_icon="🚀", layout="wide")
 
-# ---------- UI STYLE ----------
+# ---------- PREMIUM UI ----------
 st.markdown("""
 <style>
-.main {
-    background-color: #0e1117;
-}
-h1, h2, h3 {
-    color: #00ffcc;
-}
-.stButton>button {
-    background-color: #00ffcc;
-    color: black;
-    border-radius: 10px;
-    padding: 10px;
-}
-.stDownloadButton>button {
-    background-color: #ff4b4b;
+
+/* Background */
+.stApp {
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
     color: white;
-    border-radius: 10px;
 }
+
+/* Title Glow */
+h1 {
+    text-align: center;
+    font-size: 50px;
+    color: #00ffcc;
+    text-shadow: 0px 0px 20px #00ffcc;
+}
+
+/* Buttons */
+.stButton>button {
+    background: linear-gradient(90deg, #00ffcc, #00c3ff);
+    color: black;
+    border-radius: 12px;
+    padding: 12px;
+    font-weight: bold;
+    transition: 0.3s;
+}
+.stButton>button:hover {
+    transform: scale(1.05);
+    box-shadow: 0px 0px 20px #00ffcc;
+}
+
+/* Cards */
+.card {
+    background: rgba(255,255,255,0.05);
+    padding: 20px;
+    border-radius: 15px;
+    box-shadow: 0px 0px 15px rgba(0,255,200,0.2);
+    transition: 0.3s;
+}
+.card:hover {
+    transform: scale(1.02);
+    box-shadow: 0px 0px 25px #00ffcc;
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    background: #0e1117;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- TITLE ----------
-st.title("🚀 AI Super Assistant")
-st.markdown("### Analyze • Learn • Create • Plan • Grow")
-st.info("🤖 Your all-in-one AI platform for productivity and learning.")
-
-if not API_KEY:
-    st.error("API key missing in .env file")
-    st.stop()
-
-# ---------- SIDEBAR ----------
-st.sidebar.title("🚀 AI Menu")
-
-st.sidebar.markdown("### 🌟 Features")
+# ---------- BRAND ----------
 st.sidebar.markdown("""
-- 📄 Document & Image Analysis  
-- 🎓 Study Assistant  
-- 💼 Career Guidance  
-- ✍️ Content Creation  
-- 💰 Finance Help  
-- 💬 Chat Analysis  
-- 🧠 Quiz Generator  
-- 📊 Smart Planner  
-""")
+<div style='text-align:center;'>
+    <h1 style='color:#00ffcc;'>🚀 NovaMind AI</h1>
+    <p style='color:gray;'>Smart • Fast • Powerful</p>
+</div>
+""", unsafe_allow_html=True)
 
+# Optional logo (add logo.png in folder)
+# st.sidebar.image("logo.png")
+
+# ---------- MENU ----------
 mode = st.sidebar.radio(
-    "Choose Feature",
+    "✨ Choose AI Feature",
     [
-        "📄 AI Document & Image Analyzer",
-        "🎓 Study Assistant",
-        "💼 Career Assistant",
-        "✍️ Content Generator",
-        "💰 Finance Assistant",
-        "💬 Chat Analyzer",
-        "🧠 Quiz Generator",
-        "📊 Smart Planner"
+        "📄 Analyzer",
+        "🎓 Study",
+        "💼 Career",
+        "✍️ Content",
+        "💰 Finance",
+        "💬 Chat",
+        "🧠 Quiz",
+        "📊 Planner"
     ]
 )
 
-# ---------- COMMON FUNCTIONS ----------
+# ---------- FUNCTIONS ----------
 def call_ai(prompt):
     url = "https://integrate.api.nvidia.com/v1/chat/completions"
 
@@ -96,20 +113,15 @@ def call_ai(prompt):
     }
 
     try:
-        response = requests.post(url, headers=headers, json=data)
+        res = requests.post(url, headers=headers, json=data)
 
-        if response.status_code != 200:
-            return f"API Error {response.status_code}: {response.text}"
+        if res.status_code != 200:
+            return f"API Error: {res.text}"
 
-        res_json = response.json()
-
-        if "choices" in res_json:
-            return res_json["choices"][0]["message"]["content"]
-
-        return "Unexpected API response"
+        return res.json()["choices"][0]["message"]["content"]
 
     except Exception as e:
-        return f"Error: {str(e)}"
+        return str(e)
 
 
 def generate_pdf(content):
@@ -118,9 +130,6 @@ def generate_pdf(content):
     styles = getSampleStyleSheet()
 
     elements = []
-    elements.append(Paragraph("<b>AI Generated Report</b>", styles["Title"]))
-    elements.append(Spacer(1, 20))
-
     for line in content.split("\n"):
         elements.append(Paragraph(line, styles["Normal"]))
         elements.append(Spacer(1, 10))
@@ -133,10 +142,9 @@ def generate_pdf(content):
 def read_pdf(file):
     reader = PyPDF2.PdfReader(file)
     text = ""
-    for page in reader.pages:
-        t = page.extract_text()
-        if t:
-            text += t
+    for p in reader.pages:
+        if p.extract_text():
+            text += p.extract_text()
     return text
 
 
@@ -158,223 +166,110 @@ def encode_image(file):
     return base64.b64encode(file.read()).decode("utf-8")
 
 
+# ---------- LANDING ----------
+st.markdown("<h1>🚀 NovaMind AI</h1>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align:center;'>All-in-One AI Platform</h3>", unsafe_allow_html=True)
+
 # ============================================================
-# 📄 DOCUMENT & IMAGE ANALYZER
+# 📄 ANALYZER
 # ============================================================
+if mode == "📄 Analyzer":
 
-if mode == "📄 AI Document & Image Analyzer":
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
 
-    st.header("📄🖼️ AI Document & Image Analyzer")
-
-    file = st.file_uploader("Upload File", type=["pdf", "txt", "docx", "png", "jpg", "jpeg"])
-
-    doc_type = st.selectbox(
-        "Analysis Type",
-        ["General Analysis", "Summary", "Key Points", "Detailed Review"]
-    )
+    file = st.file_uploader("Upload File", type=["pdf","txt","docx","png","jpg"])
 
     if st.button("Analyze") and file:
 
         if "image" in file.type:
-            st.image(file)
-
             img = encode_image(file)
-
-            prompt = f"""
-Analyze this image and give:
-- Description
-- Key details
-- Insights
-
-{img}
-"""
+            prompt = f"Analyze image: {img}"
         else:
             text = read_file(file)
+            prompt = f"Analyze document:\n{text}"
 
-            if doc_type == "Summary":
-                instruction = "Summarize this document."
-            elif doc_type == "Key Points":
-                instruction = "Give key points."
-            elif doc_type == "Detailed Review":
-                instruction = "Give strengths, weaknesses and suggestions."
-            else:
-                instruction = "Analyze document."
-
-            prompt = f"{instruction}\n{text}"
-
-        with st.spinner("🤖 AI analyzing..."):
-            result = call_ai(prompt)
-
-        st.session_state.analysis = result
-
+        result = call_ai(prompt)
         st.write(result)
+        st.download_button("Download PDF", generate_pdf(result))
 
-        st.download_button("📄 Download PDF", generate_pdf(result), "report.pdf")
-
-    if "analysis" in st.session_state:
-        q = st.text_input("Ask about your file")
-        if st.button("Ask AI"):
-            st.write(call_ai(st.session_state.analysis + "\n" + q))
-
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ============================================================
-# 🎓 STUDY ASSISTANT
+# 🎓 STUDY
 # ============================================================
+elif mode == "🎓 Study":
 
-elif mode == "🎓 Study Assistant":
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
 
-    st.header("🎓 Study Assistant")
-
-    subject = st.text_input("Subject")
-    question = st.text_area("Question")
+    q = st.text_area("Enter Question")
 
     if st.button("Get Answer"):
+        res = call_ai(f"Explain for students:\n{q}")
+        st.write(res)
 
-        prompt = f"""
-Explain clearly for students.
-
-Subject: {subject}
-Question: {question}
-
-Give explanation, key points and example.
-"""
-
-        result = call_ai(prompt)
-
-        st.write(result)
-        st.download_button("📥 Download", generate_pdf(result), "notes.pdf")
-
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ============================================================
-# 💼 CAREER ASSISTANT
+# 💼 CAREER
 # ============================================================
+elif mode == "💼 Career":
 
-elif mode == "💼 Career Assistant":
-
-    st.header("💼 Career Assistant")
-
-    role = st.text_input("Job Role")
-    q = st.text_area("Your Question")
+    role = st.text_input("Role")
+    q = st.text_area("Question")
 
     if st.button("Get Advice"):
-
-        result = call_ai(f"Career advice for {role}: {q}")
-
-        st.write(result)
-        st.download_button("📥 Download", generate_pdf(result), "career.pdf")
-
+        st.write(call_ai(f"{role} career advice: {q}"))
 
 # ============================================================
-# ✍️ CONTENT GENERATOR
+# ✍️ CONTENT
 # ============================================================
-
-elif mode == "✍️ Content Generator":
-
-    st.header("✍️ Content Generator")
+elif mode == "✍️ Content":
 
     topic = st.text_input("Topic")
-    ctype = st.selectbox("Type", ["Blog", "Caption", "Email", "Story"])
 
     if st.button("Generate"):
-
-        result = call_ai(f"Write a {ctype} about {topic}")
-
-        st.write(result)
-        st.download_button("📥 Download", generate_pdf(result), "content.pdf")
-
+        st.write(call_ai(f"Write content on {topic}"))
 
 # ============================================================
-# 💰 FINANCE ASSISTANT
+# 💰 FINANCE
 # ============================================================
+elif mode == "💰 Finance":
 
-elif mode == "💰 Finance Assistant":
-
-    st.header("💰 Finance Assistant")
-
-    ftype = st.selectbox(
-        "Category",
-        ["Business", "Banking", "Trading", "Crypto", "Personal Finance"]
-    )
-
-    q = st.text_area("Ask question")
+    q = st.text_area("Finance Question")
 
     if st.button("Get Advice"):
-
-        prompt = f"""
-Finance expert.
-
-Category: {ftype}
-
-Question: {q}
-
-Give simple advice + risks.
-"""
-
-        result = call_ai(prompt)
-
-        st.write(result)
-        st.download_button("📥 Download", generate_pdf(result), "finance.pdf")
-
+        st.write(call_ai(f"Finance advice: {q}"))
 
 # ============================================================
-# 💬 CHAT ANALYZER
+# 💬 CHAT
 # ============================================================
+elif mode == "💬 Chat":
 
-elif mode == "💬 Chat Analyzer":
-
-    st.header("💬 Chat Analyzer")
-
-    chat = st.text_area("Paste chat")
-
-    atype = st.selectbox(
-        "Analysis Type",
-        ["Sentiment", "Tone", "Intent", "Full Analysis"]
-    )
+    chat = st.text_area("Paste Chat")
 
     if st.button("Analyze"):
-
-        result = call_ai(f"{atype} analysis:\n{chat}")
-
-        st.write(result)
-        st.download_button("📥 Download", generate_pdf(result), "chat.pdf")
-
+        st.write(call_ai(f"Analyze chat:\n{chat}"))
 
 # ============================================================
-# 🧠 QUIZ GENERATOR
+# 🧠 QUIZ
 # ============================================================
-
-elif mode == "🧠 Quiz Generator":
-
-    st.header("🧠 Quiz Generator")
+elif mode == "🧠 Quiz":
 
     topic = st.text_input("Topic")
 
-    if st.button("Generate Quiz"):
-
-        result = call_ai(f"Create 5 MCQs with answers on {topic}")
-
-        st.write(result)
-
+    if st.button("Generate"):
+        st.write(call_ai(f"Create quiz on {topic}"))
 
 # ============================================================
-# 📊 SMART PLANNER
+# 📊 PLANNER
 # ============================================================
-
-elif mode == "📊 Smart Planner":
-
-    st.header("📊 Smart Planner")
+elif mode == "📊 Planner":
 
     goal = st.text_input("Goal")
-    days = st.slider("Days", 1, 30, 7)
 
     if st.button("Create Plan"):
-
-        result = call_ai(f"{days}-day plan for {goal}")
-
-        st.write(result)
-        st.download_button("📥 Download", generate_pdf(result), "plan.pdf")
-
+        st.write(call_ai(f"Plan for: {goal}"))
 
 # ---------- FOOTER ----------
 st.markdown("---")
-st.markdown("### 👨‍💻 Created by **MOHAMMED.USMAN** 🚀")
+st.markdown("<center>👨‍💻 Created by <b>MOHAMMED.USMAN</b> 🚀</center>", unsafe_allow_html=True)
