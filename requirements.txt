@@ -3,3 +3,4 @@ requests
 python-dotenv
 PyPDF2
 python-docx
+reportlab
