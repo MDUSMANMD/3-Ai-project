@@ -8,6 +8,10 @@ import base64
 from dotenv import load_dotenv
 from docx import Document
 
+# ✅ PDF LIBRARY
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+
 # ---------- LOAD ENV ----------
 load_dotenv()
 API_KEY = os.getenv("NVIDIA_API_KEY")
@@ -60,7 +64,7 @@ def read_file(file):
         return file.read().decode()
 
 
-# ---------- IMAGE TO BASE64 ----------
+# ---------- IMAGE ENCODE ----------
 def encode_image(file):
     return base64.b64encode(file.read()).decode("utf-8")
 
@@ -101,9 +105,23 @@ def call_ai(prompt):
         return f"Error: {str(e)}"
 
 
-# ---------- DOWNLOAD ----------
-def generate_download(content):
-    return content.encode("utf-8")
+# ---------- PDF GENERATOR ----------
+def generate_pdf(content):
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer)
+    styles = getSampleStyleSheet()
+
+    elements = []
+
+    for line in content.split("\n"):
+        elements.append(Paragraph(line, styles["Normal"]))
+        elements.append(Spacer(1, 10))
+
+    doc.build(elements)
+    buffer.seek(0)
+
+    return buffer
 
 
 # ---------- MAIN ----------
@@ -111,7 +129,7 @@ if analyze and uploaded_file:
 
     file_type = uploaded_file.type
 
-    # ---------- IMAGE CASE ----------
+    # ---------- IMAGE ----------
     if "image" in file_type:
 
         st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
@@ -121,7 +139,7 @@ if analyze and uploaded_file:
         prompt = f"""
 You are an AI image analyzer.
 
-Analyze this image based on base64 data.
+Analyze this image.
 
 Give:
 - Description
@@ -132,7 +150,7 @@ Image (base64):
 {encoded_img}
 """
 
-    # ---------- DOCUMENT CASE ----------
+    # ---------- DOCUMENT ----------
     else:
 
         document_text = read_file(uploaded_file)
@@ -143,13 +161,13 @@ Image (base64):
             instruction = "Extract key points."
         elif doc_type == "Detailed Review":
             instruction = """
-            Analyze this document in detail.
+Analyze this document in detail.
 
-            Give:
-            - Strengths
-            - Weaknesses
-            - Suggestions
-            """
+Give:
+- Strengths
+- Weaknesses
+- Suggestions
+"""
         else:
             instruction = "Analyze this document and provide insights."
 
@@ -158,9 +176,9 @@ You are an expert AI document analyzer.
 
 {instruction}
 
-Format as a report:
+Format as a professional report:
 
-Title: Analysis Report
+Title: AI Analysis Report
 
 Summary:
 ...
@@ -193,11 +211,14 @@ Document:
         unsafe_allow_html=True
     )
 
-    # ---------- DOWNLOAD ----------
+    # ---------- PDF DOWNLOAD ----------
+    pdf_file = generate_pdf(analysis)
+
     st.download_button(
-        "📥 Download Report",
-        generate_download(analysis),
-        "AI_Analysis.txt"
+        label="📄 Download PDF Report",
+        data=pdf_file,
+        file_name="AI_Analysis_Report.pdf",
+        mime="application/pdf"
     )
 
 
@@ -207,7 +228,7 @@ if "analysis" in st.session_state:
     st.markdown("---")
     st.header("🤖 Ask About It")
 
-    question = st.text_input("Ask anything")
+    question = st.text_input("Ask anything about your file")
 
     if st.button("Ask AI"):
 
@@ -225,7 +246,8 @@ Question:
         if "Error" in answer:
             st.error(answer)
         else:
-            st.markdown(answer)
+            st.markdown("### 🤖 AI Response")
+            st.write(answer)
 
 
 # ---------- FOOTER ----------
