@@ -3,7 +3,6 @@ import io
 import os
 import requests
 import PyPDF2
-import re
 import base64
 from dotenv import load_dotenv
 from docx import Document
@@ -17,25 +16,66 @@ load_dotenv()
 API_KEY = os.getenv("NVIDIA_API_KEY")
 
 # ---------- PAGE ----------
-st.set_page_config(page_title="AI Study Platform", page_icon="📚")
+st.set_page_config(page_title="AI Super Assistant", page_icon="🚀")
 
-st.title("📚 AI Study Platform")
-st.markdown("### 🚀 Analyze • Learn • Practice")
+# ---------- UI STYLE ----------
+st.markdown("""
+<style>
+.main {
+    background-color: #0e1117;
+}
+h1, h2, h3 {
+    color: #00ffcc;
+}
+.stButton>button {
+    background-color: #00ffcc;
+    color: black;
+    border-radius: 10px;
+    padding: 10px;
+}
+.stDownloadButton>button {
+    background-color: #ff4b4b;
+    color: white;
+    border-radius: 10px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ---------- TITLE ----------
+st.title("🚀 AI Super Assistant")
+st.markdown("### Analyze • Learn • Create • Plan • Grow")
+st.info("🤖 Your all-in-one AI platform for productivity and learning.")
 
 if not API_KEY:
     st.error("API key missing in .env file")
     st.stop()
 
-# ---------- SIDEBAR MENU ----------
-st.sidebar.title("📚 AI Menu")
+# ---------- SIDEBAR ----------
+st.sidebar.title("🚀 AI Menu")
+
+st.sidebar.markdown("### 🌟 Features")
+st.sidebar.markdown("""
+- 📄 Document & Image Analysis  
+- 🎓 Study Assistant  
+- 💼 Career Guidance  
+- ✍️ Content Creation  
+- 💰 Finance Help  
+- 💬 Chat Analysis  
+- 🧠 Quiz Generator  
+- 📊 Smart Planner  
+""")
 
 mode = st.sidebar.radio(
     "Choose Feature",
     [
         "📄 AI Document & Image Analyzer",
-        "🎓 Exam Helper",
+        "🎓 Study Assistant",
+        "💼 Career Assistant",
+        "✍️ Content Generator",
+        "💰 Finance Assistant",
+        "💬 Chat Analyzer",
         "🧠 Quiz Generator",
-        "📊 Study Planner"
+        "📊 Smart Planner"
     ]
 )
 
@@ -61,10 +101,10 @@ def call_ai(prompt):
         if response.status_code != 200:
             return f"API Error {response.status_code}: {response.text}"
 
-        result = response.json()
+        res_json = response.json()
 
-        if "choices" in result:
-            return result["choices"][0]["message"]["content"]
+        if "choices" in res_json:
+            return res_json["choices"][0]["message"]["content"]
 
         return "Unexpected API response"
 
@@ -78,7 +118,7 @@ def generate_pdf(content):
     styles = getSampleStyleSheet()
 
     elements = []
-    elements.append(Paragraph("<b>AI Report</b>", styles["Title"]))
+    elements.append(Paragraph("<b>AI Generated Report</b>", styles["Title"]))
     elements.append(Spacer(1, 20))
 
     for line in content.split("\n"):
@@ -108,10 +148,10 @@ def read_docx(file):
 def read_file(file):
     if file.type == "application/pdf":
         return read_pdf(io.BytesIO(file.read()))
-    elif file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+    elif "word" in file.type:
         return read_docx(file)
     else:
-        return file.read().decode()
+        return file.read().decode(errors="ignore")
 
 
 def encode_image(file):
@@ -119,41 +159,37 @@ def encode_image(file):
 
 
 # ============================================================
-# 📄 DOCUMENT & IMAGE ANALYZER (YOUR ORIGINAL CODE KEPT)
+# 📄 DOCUMENT & IMAGE ANALYZER
 # ============================================================
 
 if mode == "📄 AI Document & Image Analyzer":
 
     st.header("📄🖼️ AI Document & Image Analyzer")
 
-    uploaded_file = st.file_uploader(
-        "📤 Upload File",
-        type=["pdf", "txt", "docx", "png", "jpg", "jpeg"]
-    )
+    file = st.file_uploader("Upload File", type=["pdf", "txt", "docx", "png", "jpg", "jpeg"])
 
     doc_type = st.selectbox(
-        "🧠 Select Analysis Type",
+        "Analysis Type",
         ["General Analysis", "Summary", "Key Points", "Detailed Review"]
     )
 
-    analyze = st.button("🔍 Analyze")
+    if st.button("Analyze") and file:
 
-    if analyze and uploaded_file:
+        if "image" in file.type:
+            st.image(file)
 
-        file_type = uploaded_file.type
-
-        if "image" in file_type:
-            st.image(uploaded_file, use_column_width=True)
-
-            encoded_img = encode_image(uploaded_file)
+            img = encode_image(file)
 
             prompt = f"""
-Analyze this image and give description, key details and insights.
+Analyze this image and give:
+- Description
+- Key details
+- Insights
 
-{encoded_img}
+{img}
 """
         else:
-            document_text = read_file(uploaded_file)
+            text = read_file(file)
 
             if doc_type == "Summary":
                 instruction = "Summarize this document."
@@ -164,67 +200,143 @@ Analyze this image and give description, key details and insights.
             else:
                 instruction = "Analyze document."
 
-            prompt = f"""
-{instruction}
-
-Document:
-{document_text}
-"""
+            prompt = f"{instruction}\n{text}"
 
         with st.spinner("🤖 AI analyzing..."):
-            analysis = call_ai(prompt)
+            result = call_ai(prompt)
 
-        st.session_state.analysis = analysis
+        st.session_state.analysis = result
 
-        st.markdown("### 📊 Result")
-        st.write(analysis)
+        st.write(result)
 
-        st.download_button(
-            "📄 Download PDF",
-            generate_pdf(analysis),
-            "report.pdf"
-        )
+        st.download_button("📄 Download PDF", generate_pdf(result), "report.pdf")
 
-    # CHATBOT
     if "analysis" in st.session_state:
-        st.markdown("---")
-        question = st.text_input("Ask about your file")
-
+        q = st.text_input("Ask about your file")
         if st.button("Ask AI"):
-            answer = call_ai(f"{st.session_state.analysis}\nQuestion:{question}")
-            st.write(answer)
+            st.write(call_ai(st.session_state.analysis + "\n" + q))
 
 
 # ============================================================
-# 🎓 EXAM HELPER
+# 🎓 STUDY ASSISTANT
 # ============================================================
 
-elif mode == "🎓 Exam Helper":
+elif mode == "🎓 Study Assistant":
 
-    st.header("🎓 Exam Helper")
+    st.header("🎓 Study Assistant")
 
     subject = st.text_input("Subject")
-    question = st.text_area("Enter Question")
+    question = st.text_area("Question")
 
     if st.button("Get Answer"):
 
         prompt = f"""
-Explain simply.
+Explain clearly for students.
 
 Subject: {subject}
 Question: {question}
 
-Give:
-- Explanation
-- Key points
-- Example
+Give explanation, key points and example.
 """
 
         result = call_ai(prompt)
 
         st.write(result)
+        st.download_button("📥 Download", generate_pdf(result), "notes.pdf")
 
-        st.download_button("📥 Download PDF", generate_pdf(result), "notes.pdf")
+
+# ============================================================
+# 💼 CAREER ASSISTANT
+# ============================================================
+
+elif mode == "💼 Career Assistant":
+
+    st.header("💼 Career Assistant")
+
+    role = st.text_input("Job Role")
+    q = st.text_area("Your Question")
+
+    if st.button("Get Advice"):
+
+        result = call_ai(f"Career advice for {role}: {q}")
+
+        st.write(result)
+        st.download_button("📥 Download", generate_pdf(result), "career.pdf")
+
+
+# ============================================================
+# ✍️ CONTENT GENERATOR
+# ============================================================
+
+elif mode == "✍️ Content Generator":
+
+    st.header("✍️ Content Generator")
+
+    topic = st.text_input("Topic")
+    ctype = st.selectbox("Type", ["Blog", "Caption", "Email", "Story"])
+
+    if st.button("Generate"):
+
+        result = call_ai(f"Write a {ctype} about {topic}")
+
+        st.write(result)
+        st.download_button("📥 Download", generate_pdf(result), "content.pdf")
+
+
+# ============================================================
+# 💰 FINANCE ASSISTANT
+# ============================================================
+
+elif mode == "💰 Finance Assistant":
+
+    st.header("💰 Finance Assistant")
+
+    ftype = st.selectbox(
+        "Category",
+        ["Business", "Banking", "Trading", "Crypto", "Personal Finance"]
+    )
+
+    q = st.text_area("Ask question")
+
+    if st.button("Get Advice"):
+
+        prompt = f"""
+Finance expert.
+
+Category: {ftype}
+
+Question: {q}
+
+Give simple advice + risks.
+"""
+
+        result = call_ai(prompt)
+
+        st.write(result)
+        st.download_button("📥 Download", generate_pdf(result), "finance.pdf")
+
+
+# ============================================================
+# 💬 CHAT ANALYZER
+# ============================================================
+
+elif mode == "💬 Chat Analyzer":
+
+    st.header("💬 Chat Analyzer")
+
+    chat = st.text_area("Paste chat")
+
+    atype = st.selectbox(
+        "Analysis Type",
+        ["Sentiment", "Tone", "Intent", "Full Analysis"]
+    )
+
+    if st.button("Analyze"):
+
+        result = call_ai(f"{atype} analysis:\n{chat}")
+
+        st.write(result)
+        st.download_button("📥 Download", generate_pdf(result), "chat.pdf")
 
 
 # ============================================================
@@ -235,39 +347,34 @@ elif mode == "🧠 Quiz Generator":
 
     st.header("🧠 Quiz Generator")
 
-    topic = st.text_input("Enter Topic")
+    topic = st.text_input("Topic")
 
     if st.button("Generate Quiz"):
 
-        prompt = f"Create 5 MCQs with answers on {topic}"
-
-        result = call_ai(prompt)
+        result = call_ai(f"Create 5 MCQs with answers on {topic}")
 
         st.write(result)
 
 
 # ============================================================
-# 📊 STUDY PLANNER
+# 📊 SMART PLANNER
 # ============================================================
 
-elif mode == "📊 Study Planner":
+elif mode == "📊 Smart Planner":
 
-    st.header("📊 Study Planner")
+    st.header("📊 Smart Planner")
 
-    subject = st.text_input("Subject")
+    goal = st.text_input("Goal")
     days = st.slider("Days", 1, 30, 7)
 
     if st.button("Create Plan"):
 
-        prompt = f"Create {days}-day study plan for {subject}"
-
-        result = call_ai(prompt)
+        result = call_ai(f"{days}-day plan for {goal}")
 
         st.write(result)
+        st.download_button("📥 Download", generate_pdf(result), "plan.pdf")
 
-        st.download_button("📥 Download Plan", generate_pdf(result), "plan.pdf")
 
-
-# ---------- FOOTER (UNCHANGED) ----------
+# ---------- FOOTER ----------
 st.markdown("---")
 st.markdown("### 👨‍💻 Created by **MOHAMMED.USMAN** 🚀")
