@@ -8,7 +8,6 @@ import pandas as pd
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
-# ---------- ENV ----------
 load_dotenv()
 API_KEY = os.getenv("NVIDIA_API_KEY")
 
@@ -21,13 +20,11 @@ st.markdown("""
 .box {
     background: rgba(255,255,255,0.05);
     padding:20px;
-    border-radius:15px;
-    margin-bottom:15px;
+    border-radius:12px;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- SIDEBAR ----------
 st.sidebar.title("🚀 NovaMind AI")
 
 mode = st.sidebar.radio(
@@ -37,12 +34,7 @@ mode = st.sidebar.radio(
 
 # ---------- SESSION ----------
 if "memory" not in st.session_state:
-    st.session_state.memory = {
-        "Education": [],
-        "Career": [],
-        "Finance": [],
-        "Analyzer": []
-    }
+    st.session_state.memory = {"Education":[], "Career":[], "Finance":[], "Analyzer":[]}
 
 if "usage" not in st.session_state:
     st.session_state.usage = []
@@ -50,38 +42,28 @@ if "usage" not in st.session_state:
 # ---------- FUNCTIONS ----------
 def call_ai(prompt):
     url = "https://integrate.api.nvidia.com/v1/chat/completions"
-
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
-    }
-
+    headers = {"Authorization": f"Bearer {API_KEY}"}
     data = {
-        "model": "deepseek-ai/deepseek-v3.2",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.5
+        "model":"deepseek-ai/deepseek-v3.2",
+        "messages":[{"role":"user","content":prompt}],
+        "max_tokens":500  # 🔥 faster
     }
 
     try:
-        res = requests.post(url, headers=headers, json=data)
+        with st.spinner("🤖 AI is thinking..."):
+            res = requests.post(url, headers=headers, json=data, timeout=20)
 
         if res.status_code != 200:
-            return f"API Error {res.status_code}: {res.text}"
+            return "API Error"
 
-        result = res.json()
+        return res.json()["choices"][0]["message"]["content"]
 
-        if "choices" in result:
-            return result["choices"][0]["message"]["content"]
-
-        return "Invalid API response"
-
-    except Exception as e:
-        return f"Error: {str(e)}"
+    except:
+        return "Request Timeout / Error"
 
 
 def read_file(file):
-    if not file:
-        return ""
+    if not file: return ""
 
     if "pdf" in file.type:
         reader = PyPDF2.PdfReader(file)
@@ -102,55 +84,27 @@ def pdf_download(text):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf)
     styles = getSampleStyleSheet()
-
     elements = []
+
     for line in text.split("\n"):
         elements.append(Paragraph(line, styles["Normal"]))
-        elements.append(Spacer(1, 10))
+        elements.append(Spacer(1,10))
 
     doc.build(elements)
     buf.seek(0)
     return buf
 
 
-# ---------- SAFE VOICE ----------
-def voice_input():
-    st.warning("🎤 Voice input not supported on deployed app. Use text.")
-    return None
-
-
 def memory_chat(module, user_input):
-    history = "\n".join(st.session_state.memory[module][-6:])
-
-    prompt = f"""
-Previous conversation:
-{history}
-
-User: {user_input}
-"""
+    history = "\n".join(st.session_state.memory[module][-4:])
+    prompt = f"{history}\nUser:{user_input}"
 
     response = call_ai(prompt)
 
-    st.session_state.memory[module].append(f"User: {user_input}")
-    st.session_state.memory[module].append(f"AI: {response}")
+    st.session_state.memory[module].append(f"User:{user_input}")
+    st.session_state.memory[module].append(f"AI:{response}")
 
     return response
-
-
-def chatbot(module):
-    st.subheader("💬 Ask AI")
-
-    q = st.text_input("Type your question")
-
-    if st.button("🎤 Voice"):
-        voice = voice_input()
-        if voice:
-            q = voice
-
-    if st.button("Ask AI"):
-        if q:
-            res = memory_chat(module, q)
-            st.write(res)
 
 
 # ============================================================
@@ -158,7 +112,7 @@ def chatbot(module):
 # ============================================================
 if mode == "🎓 Education":
 
-    st.header("🎓 Education Assistant")
+    st.header("🎓 Education AI")
 
     file = st.file_uploader("Upload Notes", type=["pdf","docx","txt","png","jpg"])
     q = st.text_area("Ask Question")
@@ -170,48 +124,47 @@ if mode == "🎓 Education":
         st.download_button("Download PDF", pdf_download(result))
         st.session_state.usage.append("Education")
 
-    chatbot("Education")
 
 # ============================================================
 # 💼 CAREER
 # ============================================================
 elif mode == "💼 Career":
 
-    st.header("💼 Career Assistant")
+    st.header("💼 Career AI")
 
-    file = st.file_uploader("Upload Resume", type=["pdf","docx"])
+    file = st.file_uploader("Upload Resume", type=["pdf","docx","txt","png","jpg"])
     role = st.text_input("Target Role")
 
-    if st.button("Analyze Career"):
+    if st.button("Analyze"):
         content = read_file(file)
         result = memory_chat("Career", role + "\n" + content)
         st.write(result)
         st.session_state.usage.append("Career")
 
-    chatbot("Career")
 
 # ============================================================
 # 💰 FINANCE
 # ============================================================
 elif mode == "💰 Finance":
 
-    st.header("💰 Finance Assistant")
+    st.header("💰 Finance AI")
 
-    q = st.text_area("Ask Finance Question")
+    file = st.file_uploader("Upload Data", type=["pdf","txt","png","jpg"])
+    q = st.text_area("Ask Question")
 
     if st.button("Get Advice"):
-        result = memory_chat("Finance", q)
+        content = read_file(file)
+        result = memory_chat("Finance", content + "\n" + q)
         st.write(result)
         st.session_state.usage.append("Finance")
 
-    chatbot("Finance")
 
 # ============================================================
 # 📄 ANALYZER
 # ============================================================
 elif mode == "📄 Analyzer":
 
-    st.header("📄 Document & Image Analyzer")
+    st.header("📄 Analyzer AI")
 
     file = st.file_uploader("Upload File", type=["pdf","docx","txt","png","jpg"])
 
@@ -222,22 +175,28 @@ elif mode == "📄 Analyzer":
         st.download_button("Download PDF", pdf_download(result))
         st.session_state.usage.append("Analyzer")
 
-    chatbot("Analyzer")
 
 # ============================================================
-# 📊 DASHBOARD
+# 📊 DASHBOARD (ADVANCED CHARTS)
 # ============================================================
 elif mode == "📊 Dashboard":
 
-    st.header("📊 Usage Analytics")
+    st.header("📊 Analytics Dashboard")
 
     if st.session_state.usage:
+
         df = pd.DataFrame(st.session_state.usage, columns=["Feature"])
-        st.bar_chart(df["Feature"].value_counts())
-        st.write(df["Feature"].value_counts())
+
+        st.subheader("Usage Count")
+        counts = df["Feature"].value_counts()
+        st.bar_chart(counts)
+
+        st.subheader("Detailed Data")
+        st.write(counts)
+
     else:
-        st.info("No usage data yet")
+        st.info("No data yet. Use the app first.")
 
 # ---------- FOOTER ----------
 st.markdown("---")
-st.markdown("<center>👨‍💻 Created by <b>MOHAMMED.USMAN</b> 🚀</center>", unsafe_allow_html=True)
+st.markdown("<center>👨‍💻 Created by <b>MOHAMMED.USMAN</b></center>", unsafe_allow_html=True)
