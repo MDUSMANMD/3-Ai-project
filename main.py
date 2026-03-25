@@ -1,11 +1,10 @@
 import streamlit as st
-import io
-import os
-import requests
+import io, os, requests, base64
 import PyPDF2
-import base64
 from dotenv import load_dotenv
 from docx import Document
+import pandas as pd
+import speech_recognition as sr
 
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
@@ -14,261 +13,203 @@ from reportlab.lib.styles import getSampleStyleSheet
 load_dotenv()
 API_KEY = os.getenv("NVIDIA_API_KEY")
 
-# ---------- PAGE ----------
-st.set_page_config(page_title="NovaMind AI", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="NovaMind AI", layout="wide")
 
-# ---------- GLASS UI ----------
+# ---------- CLEAN GLASS UI ----------
 st.markdown("""
 <style>
-
-/* Background */
-.stApp {
-    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-}
-
-/* Glass Card */
+.stApp {background:#1e1e1e; color:white;}
 .glass {
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 20px;
-    padding: 25px;
-    backdrop-filter: blur(15px);
-    box-shadow: 0 0 30px rgba(0,255,200,0.2);
-    transition: 0.3s;
+    background: rgba(255,255,255,0.05);
+    padding:20px;
+    border-radius:15px;
+    backdrop-filter: blur(10px);
+    margin-bottom:20px;
 }
-.glass:hover {
-    box-shadow: 0 0 50px rgba(0,255,200,0.4);
-}
-
-/* Title */
-h1 {
-    text-align:center;
-    color:#00ffcc;
-    text-shadow:0 0 20px #00ffcc;
-}
-
-/* Buttons */
-.stButton>button {
-    background: linear-gradient(90deg, #00ffcc, #00c3ff);
-    color:black;
-    border-radius:12px;
-    padding:10px;
-    transition:0.3s;
-}
-.stButton>button:hover {
-    transform:scale(1.05);
-    box-shadow:0 0 20px #00ffcc;
-}
-
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background:#0e1117;
-}
-
+h1,h2 {text-align:center;}
+.stButton>button {border-radius:10px;}
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- BRAND ----------
-st.sidebar.markdown("""
-<div style='text-align:center;'>
-<h1>🚀 NovaMind AI</h1>
-<p style='color:gray;'>Smart • Fast • Powerful</p>
-</div>
-""", unsafe_allow_html=True)
+# ---------- SIDEBAR ----------
+st.sidebar.title("🚀 NovaMind AI")
 
 mode = st.sidebar.radio(
-    "✨ Choose Feature",
-    ["📄 Analyzer","🎓 Study","💼 Career","✍️ Content","💰 Finance","💬 Chat","🧠 Quiz","📊 Planner"]
+    "Select Module",
+    ["🎓 Education", "💼 Career", "💰 Finance", "📄 Analyzer", "📊 Dashboard"]
 )
 
-# ---------- COMMON ----------
+# ---------- SESSION MEMORY ----------
+if "memory" not in st.session_state:
+    st.session_state.memory = {
+        "Education": [],
+        "Career": [],
+        "Finance": [],
+        "Analyzer": []
+    }
+
+if "usage" not in st.session_state:
+    st.session_state.usage = []
+
+# ---------- FUNCTIONS ----------
 def call_ai(prompt):
     url = "https://integrate.api.nvidia.com/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {API_KEY}","Content-Type":"application/json"}
-    data = {
-        "model":"deepseek-ai/deepseek-v3.2",
-        "messages":[{"role":"user","content":prompt}],
-        "temperature":0.5
-    }
+    headers = {"Authorization": f"Bearer {API_KEY}"}
+    data = {"model":"deepseek-ai/deepseek-v3.2","messages":[{"role":"user","content":prompt}]}
     try:
         res = requests.post(url, headers=headers, json=data)
-        if res.status_code != 200:
-            return f"Error: {res.text}"
         return res.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        return str(e)
-
-def generate_pdf(content):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer)
-    styles = getSampleStyleSheet()
-    elements = []
-    for line in content.split("\n"):
-        elements.append(Paragraph(line, styles["Normal"]))
-        elements.append(Spacer(1,10))
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
-
-def read_pdf(file):
-    reader = PyPDF2.PdfReader(file)
-    return "".join([p.extract_text() or "" for p in reader.pages])
-
-def read_docx(file):
-    doc = Document(file)
-    return "\n".join([p.text for p in doc.paragraphs])
+    except:
+        return "Error"
 
 def read_file(file):
-    if file.type == "application/pdf":
-        return read_pdf(io.BytesIO(file.read()))
+    if not file: return ""
+    if "pdf" in file.type:
+        reader = PyPDF2.PdfReader(file)
+        return "".join([p.extract_text() or "" for p in reader.pages])
     elif "word" in file.type:
-        return read_docx(file)
+        doc = Document(file)
+        return "\n".join([p.text for p in doc.paragraphs])
+    elif "image" in file.type:
+        return base64.b64encode(file.read()).decode()
     else:
         return file.read().decode(errors="ignore")
 
-def encode_image(file):
-    return base64.b64encode(file.read()).decode("utf-8")
+def pdf_download(text):
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf)
+    styles = getSampleStyleSheet()
+    elements = []
+    for line in text.split("\n"):
+        elements.append(Paragraph(line, styles["Normal"]))
+        elements.append(Spacer(1,10))
+    doc.build(elements)
+    buf.seek(0)
+    return buf
 
-def handle_upload(file):
-    if not file:
-        return ""
-    if "image" in file.type:
-        return f"Image Data:\n{encode_image(file)}"
-    else:
-        return read_file(file)
+def voice_input():
+    try:
+        r = sr.Recognizer()
+        with sr.Microphone() as source:
+            st.info("🎤 Listening...")
+            audio = r.listen(source, timeout=5)
+        return r.recognize_google(audio)
+    except:
+        return None
 
-# ---------- TITLE ----------
-st.markdown("<h1>🚀 NovaMind AI</h1>", unsafe_allow_html=True)
-st.markdown("<h3 style='text-align:center;'>All-in-One AI Platform</h3>", unsafe_allow_html=True)
+def memory_chat(module, user_input):
+    history = "\n".join(st.session_state.memory[module][-5:])
+    prompt = f"""
+Previous conversation:
+{history}
+
+User: {user_input}
+"""
+    response = call_ai(prompt)
+
+    st.session_state.memory[module].append(f"User: {user_input}")
+    st.session_state.memory[module].append(f"AI: {response}")
+
+    return response
+
+def chatbot(module):
+    st.subheader("💬 Chat with AI")
+    q = st.text_input("Ask something")
+
+    if st.button("🎤 Voice Input"):
+        voice = voice_input()
+        if voice:
+            q = voice
+            st.success(q)
+
+    if st.button("Ask AI"):
+        res = memory_chat(module, q)
+        st.write(res)
 
 # ============================================================
-# 📄 ANALYZER
+# 🎓 EDUCATION
 # ============================================================
-if mode == "📄 Analyzer":
+if mode == "🎓 Education":
 
-    st.markdown("<div class='glass'>", unsafe_allow_html=True)
+    st.header("🎓 Education Assistant")
 
-    file = st.file_uploader("Upload File", type=["pdf","txt","docx","png","jpg","jpeg"])
-
-    if st.button("Analyze"):
-        content = handle_upload(file)
-        result = call_ai(f"Analyze:\n{content}")
-        st.write(result)
-        st.download_button("Download PDF", generate_pdf(result))
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ============================================================
-# 🎓 STUDY
-# ============================================================
-elif mode == "🎓 Study":
-
-    st.markdown("<div class='glass'>", unsafe_allow_html=True)
-
-    file = st.file_uploader("Upload Notes/Image", type=["pdf","txt","docx","png","jpg"])
-    q = st.text_area("Question")
+    file = st.file_uploader("Upload Notes", type=["pdf","docx","txt","png","jpg"])
+    q = st.text_area("Ask Question")
 
     if st.button("Get Answer"):
-        content = handle_upload(file)
-        result = call_ai(f"Study help:\n{content}\nQuestion:{q}")
+        content = read_file(file)
+        result = memory_chat("Education", f"{content}\n{q}")
         st.write(result)
+        st.download_button("Download PDF", pdf_download(result))
+        st.session_state.usage.append("Education")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    chatbot("Education")
 
 # ============================================================
 # 💼 CAREER
 # ============================================================
 elif mode == "💼 Career":
 
-    st.markdown("<div class='glass'>", unsafe_allow_html=True)
+    st.header("💼 Career Assistant")
 
-    file = st.file_uploader("Upload Resume/Image", type=["pdf","docx","png","jpg"])
-    role = st.text_input("Role")
+    file = st.file_uploader("Upload Resume", type=["pdf","docx"])
+    role = st.text_input("Target Role")
 
-    if st.button("Get Advice"):
-        content = handle_upload(file)
-        st.write(call_ai(f"Career advice for {role}:\n{content}"))
+    if st.button("Analyze Career"):
+        content = read_file(file)
+        result = memory_chat("Career", f"{role}\n{content}")
+        st.write(result)
+        st.session_state.usage.append("Career")
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ============================================================
-# ✍️ CONTENT
-# ============================================================
-elif mode == "✍️ Content":
-
-    st.markdown("<div class='glass'>", unsafe_allow_html=True)
-
-    file = st.file_uploader("Upload Reference", type=["pdf","txt","docx","png","jpg"])
-    topic = st.text_input("Topic")
-
-    if st.button("Generate"):
-        content = handle_upload(file)
-        st.write(call_ai(f"Create content on {topic} using:\n{content}"))
-
-    st.markdown("</div>", unsafe_allow_html=True)
+    chatbot("Career")
 
 # ============================================================
 # 💰 FINANCE
 # ============================================================
 elif mode == "💰 Finance":
 
-    st.markdown("<div class='glass'>", unsafe_allow_html=True)
+    st.header("💰 Finance Assistant")
 
-    file = st.file_uploader("Upload Data/Image", type=["pdf","txt","png","jpg"])
-    q = st.text_area("Finance Question")
+    q = st.text_area("Ask Finance Question")
 
     if st.button("Get Advice"):
-        content = handle_upload(file)
-        st.write(call_ai(f"Finance advice:\n{content}\n{q}"))
+        result = memory_chat("Finance", q)
+        st.write(result)
+        st.session_state.usage.append("Finance")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    chatbot("Finance")
 
 # ============================================================
-# 💬 CHAT
+# 📄 ANALYZER
 # ============================================================
-elif mode == "💬 Chat":
+elif mode == "📄 Analyzer":
 
-    st.markdown("<div class='glass'>", unsafe_allow_html=True)
+    st.header("📄 Analyzer")
 
-    file = st.file_uploader("Upload Chat Screenshot/File", type=["txt","png","jpg"])
-    chat = st.text_area("Or paste chat")
+    file = st.file_uploader("Upload File", type=["pdf","docx","txt","png","jpg"])
 
     if st.button("Analyze"):
-        content = handle_upload(file)
-        st.write(call_ai(f"Analyze chat:\n{chat}\n{content}"))
+        content = read_file(file)
+        result = memory_chat("Analyzer", content)
+        st.write(result)
+        st.download_button("Download PDF", pdf_download(result))
+        st.session_state.usage.append("Analyzer")
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ============================================================
-# 🧠 QUIZ
-# ============================================================
-elif mode == "🧠 Quiz":
-
-    st.markdown("<div class='glass'>", unsafe_allow_html=True)
-
-    file = st.file_uploader("Upload Study Material", type=["pdf","txt","docx","png","jpg"])
-    topic = st.text_input("Topic")
-
-    if st.button("Generate Quiz"):
-        content = handle_upload(file)
-        st.write(call_ai(f"Create quiz on {topic} using:\n{content}"))
-
-    st.markdown("</div>", unsafe_allow_html=True)
+    chatbot("Analyzer")
 
 # ============================================================
-# 📊 PLANNER
+# 📊 DASHBOARD
 # ============================================================
-elif mode == "📊 Planner":
+elif mode == "📊 Dashboard":
 
-    st.markdown("<div class='glass'>", unsafe_allow_html=True)
+    st.header("📊 Usage Dashboard")
 
-    file = st.file_uploader("Upload Goals/Image", type=["pdf","txt","png","jpg"])
-    goal = st.text_input("Goal")
-
-    if st.button("Create Plan"):
-        content = handle_upload(file)
-        st.write(call_ai(f"Plan for {goal}:\n{content}"))
-
-    st.markdown("</div>", unsafe_allow_html=True)
+    if st.session_state.usage:
+        df = pd.DataFrame(st.session_state.usage, columns=["Feature"])
+        st.bar_chart(df["Feature"].value_counts())
+        st.write(df["Feature"].value_counts())
+    else:
+        st.info("No usage data yet")
 
 # ---------- FOOTER ----------
 st.markdown("---")
