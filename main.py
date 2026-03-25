@@ -1,16 +1,14 @@
 import streamlit as st
-import io, os, requests, base64
+import io, requests
 import PyPDF2
-from dotenv import load_dotenv
 from docx import Document
 import pandas as pd
 
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
-# ---------- ENV ----------
-load_dotenv()
-API_KEY = os.getenv("NVIDIA_API_KEY")
+# ---------- API ----------
+API_KEY = st.secrets["NVIDIA_API_KEY"]
 
 st.set_page_config(page_title="NovaMind AI", layout="wide")
 
@@ -18,16 +16,9 @@ st.set_page_config(page_title="NovaMind AI", layout="wide")
 st.markdown("""
 <style>
 .stApp {background:#1e1e1e; color:white;}
-.box {
-    background: rgba(255,255,255,0.05);
-    padding:20px;
-    border-radius:12px;
-    margin-bottom:20px;
-}
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- SIDEBAR ----------
 st.sidebar.title("🚀 NovaMind AI")
 
 mode = st.sidebar.radio(
@@ -35,19 +26,16 @@ mode = st.sidebar.radio(
     ["🎓 Education", "💼 Career", "💰 Finance", "📄 Analyzer", "📊 Dashboard"]
 )
 
-# ---------- SESSION ----------
+# ---------- MEMORY ----------
 if "memory" not in st.session_state:
     st.session_state.memory = {
-        "Education": [],
-        "Career": [],
-        "Finance": [],
-        "Analyzer": []
+        "Education": [], "Career": [], "Finance": [], "Analyzer": []
     }
 
 if "usage" not in st.session_state:
     st.session_state.usage = []
 
-# ---------- FUNCTIONS ----------
+# ---------- AI FUNCTION ----------
 def call_ai(prompt):
     url = "https://integrate.api.nvidia.com/v1/chat/completions"
 
@@ -57,24 +45,25 @@ def call_ai(prompt):
     }
 
     data = {
-        "model": "deepseek-ai/deepseek-v3.2",
+        "model": "meta/llama3-70b-instruct",  # ✅ stable model
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 250
+        "max_tokens": 300
     }
 
     try:
         with st.spinner("🤖 AI is thinking..."):
-            res = requests.post(url, headers=headers, json=data, timeout=20)
+            res = requests.post(url, headers=headers, json=data, timeout=25)
 
         if res.status_code != 200:
-            return "API Error"
+            return f"API ERROR {res.status_code}:\n{res.text}"
 
-        return res.json()["choices"][0]["message"]["content"]
+        result = res.json()
+        return result["choices"][0]["message"]["content"]
 
-    except:
-        return "Request failed"
+    except Exception as e:
+        return f"ERROR: {str(e)}"
 
-
+# ---------- FILE READER ----------
 def read_file(file):
     if not file:
         return ""
@@ -88,12 +77,12 @@ def read_file(file):
         return "\n".join([p.text for p in doc.paragraphs])
 
     elif "image" in file.type:
-        return base64.b64encode(file.read()).decode()
+        return "User uploaded an image. Describe and analyze it."
 
     else:
         return file.read().decode(errors="ignore")
 
-
+# ---------- PDF ----------
 def pdf_download(text):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer)
@@ -108,19 +97,19 @@ def pdf_download(text):
     buffer.seek(0)
     return buffer
 
-
+# ---------- MEMORY CHAT ----------
 def memory_chat(module, user_input):
     history = "\n".join(st.session_state.memory[module][-4:])
-    prompt = f"{history}\nUser:{user_input}"
+    prompt = f"{history}\nUser: {user_input}"
 
     response = call_ai(prompt)
 
-    st.session_state.memory[module].append(f"User:{user_input}")
-    st.session_state.memory[module].append(f"AI:{response}")
+    st.session_state.memory[module].append(f"User: {user_input}")
+    st.session_state.memory[module].append(f"AI: {response}")
 
     return response
 
-
+# ---------- CHATBOT ----------
 def chatbot(module):
     st.markdown("### 💬 Chat with AI")
     q = st.text_input("Ask anything")
@@ -142,7 +131,6 @@ if mode == "🎓 Education":
 
     if st.button("Get Answer"):
         content = read_file(file)
-
         result = memory_chat("Education", content + "\n" + q)
 
         st.markdown("### 📘 Answer")
@@ -167,7 +155,6 @@ elif mode == "💼 Career":
 
     if st.button("Analyze"):
         content = read_file(file)
-
         result = memory_chat("Career", role + "\n" + content)
 
         st.markdown("### 💼 Career Analysis")
@@ -192,7 +179,6 @@ elif mode == "💰 Finance":
 
     if st.button("Get Advice"):
         content = read_file(file)
-
         result = memory_chat("Finance", content + "\n" + q)
 
         st.markdown("### 💰 Advice")
@@ -216,7 +202,6 @@ elif mode == "📄 Analyzer":
 
     if st.button("Analyze"):
         content = read_file(file)
-
         result = memory_chat("Analyzer", content)
 
         st.markdown("### 📊 Analysis Result")
