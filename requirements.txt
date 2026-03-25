@@ -4,5 +4,6 @@ python-dotenv
 PyPDF2
 python-docx
 reportlab
+pandas
 speechrecognition
 pyaudio
