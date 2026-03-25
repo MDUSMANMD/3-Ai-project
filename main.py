@@ -5,7 +5,9 @@ from docx import Document
 import pandas as pd
 
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.enums import TA_CENTER
 
 # ---------- API ----------
 API_KEY = st.secrets["NVIDIA_API_KEY"]
@@ -26,7 +28,7 @@ mode = st.sidebar.radio(
     ["🎓 Education", "💼 Career", "💰 Finance", "📄 Analyzer", "📊 Dashboard"]
 )
 
-# ---------- MEMORY ----------
+# ---------- SESSION ----------
 if "memory" not in st.session_state:
     st.session_state.memory = {
         "Education": [], "Career": [], "Finance": [], "Analyzer": []
@@ -45,7 +47,7 @@ def call_ai(prompt):
     }
 
     data = {
-        "model": "meta/llama3-70b-instruct",  # ✅ stable model
+        "model": "meta/llama3-70b-instruct",
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 300
     }
@@ -55,10 +57,9 @@ def call_ai(prompt):
             res = requests.post(url, headers=headers, json=data, timeout=25)
 
         if res.status_code != 200:
-            return f"API ERROR {res.status_code}:\n{res.text}"
+            return f"API ERROR {res.status_code}: {res.text}"
 
-        result = res.json()
-        return result["choices"][0]["message"]["content"]
+        return res.json()["choices"][0]["message"]["content"]
 
     except Exception as e:
         return f"ERROR: {str(e)}"
@@ -82,22 +83,71 @@ def read_file(file):
     else:
         return file.read().decode(errors="ignore")
 
-# ---------- PDF ----------
+# ---------- PDF GENERATOR ----------
 def pdf_download(text):
+
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer)
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=40,
+        leftMargin=40,
+        topMargin=40,
+        bottomMargin=40
+    )
+
     styles = getSampleStyleSheet()
 
+    title_style = ParagraphStyle(
+        name="Title",
+        parent=styles["Heading1"],
+        alignment=TA_CENTER,
+        spaceAfter=20
+    )
+
+    heading_style = ParagraphStyle(
+        name="Heading",
+        parent=styles["Heading2"],
+        spaceAfter=10
+    )
+
+    body_style = styles["Normal"]
+
+    # Clean text
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
     elements = []
+
+    elements.append(Paragraph("AI Analysis Report", title_style))
+    elements.append(Spacer(1, 12))
+
     for line in text.split("\n"):
-        elements.append(Paragraph(line, styles["Normal"]))
-        elements.append(Spacer(1, 10))
+
+        line = line.strip()
+
+        if not line:
+            elements.append(Spacer(1, 8))
+            continue
+
+        if line.lower().startswith(("summary", "key points", "insights", "strengths", "weaknesses", "suggestions")):
+            elements.append(Paragraph(line, heading_style))
+
+        elif line.startswith("-") or line.startswith("•"):
+            line = "• " + line[1:].strip()
+            elements.append(Paragraph(line, body_style))
+
+        else:
+            elements.append(Paragraph(line, body_style))
+
+        elements.append(Spacer(1, 6))
 
     doc.build(elements)
+
     buffer.seek(0)
     return buffer
 
-# ---------- MEMORY CHAT ----------
+# ---------- MEMORY ----------
 def memory_chat(module, user_input):
     history = "\n".join(st.session_state.memory[module][-4:])
     prompt = f"{history}\nUser: {user_input}"
@@ -137,7 +187,7 @@ if mode == "🎓 Education":
         st.write(result)
 
         st.markdown("---")
-        st.download_button("⬇️ Download PDF", pdf_download(result))
+        st.download_button("⬇️ Download PDF Report", pdf_download(result), file_name="Education_Report.pdf")
 
         st.session_state.usage.append("Education")
 
@@ -161,7 +211,7 @@ elif mode == "💼 Career":
         st.write(result)
 
         st.markdown("---")
-        st.download_button("⬇️ Download PDF", pdf_download(result))
+        st.download_button("⬇️ Download PDF Report", pdf_download(result), file_name="Career_Report.pdf")
 
         st.session_state.usage.append("Career")
 
@@ -185,7 +235,7 @@ elif mode == "💰 Finance":
         st.write(result)
 
         st.markdown("---")
-        st.download_button("⬇️ Download PDF", pdf_download(result))
+        st.download_button("⬇️ Download PDF Report", pdf_download(result), file_name="Finance_Report.pdf")
 
         st.session_state.usage.append("Finance")
 
@@ -208,7 +258,7 @@ elif mode == "📄 Analyzer":
         st.write(result)
 
         st.markdown("---")
-        st.download_button("⬇️ Download PDF", pdf_download(result))
+        st.download_button("⬇️ Download PDF Report", pdf_download(result), file_name="Analysis_Report.pdf")
 
         st.session_state.usage.append("Analyzer")
 
