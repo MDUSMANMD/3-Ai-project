@@ -1,466 +1,237 @@
-import streamlit as st
 import io
-import requests
-import PyPDF2
-from docx import Document
+import os
+from typing import Optional
+
 import pandas as pd
-
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.pagesizes import letter
+import requests
+import streamlit as st
+from dotenv import load_dotenv
+from docx import Document
+from PyPDF2 import PdfReader
 from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
-# =========================================================
-# PAGE CONFIG
-# =========================================================
-st.set_page_config(
-    page_title="NovaMind AI",
-    page_icon="🚀",
-    layout="wide"
-)
+load_dotenv()
 
-# =========================================================
-# API KEY
-# =========================================================
-API_KEY = st.secrets["NVIDIA_API_KEY"]
+APP_NAME = "NovaMind AI"
+API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+DEFAULT_MODEL = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct")
+MAX_INPUT_CHARS = int(os.getenv("NOVAMIND_MAX_INPUT_CHARS", "24000"))
 
-# =========================================================
-# CUSTOM CSS
-# =========================================================
+st.set_page_config(page_title=APP_NAME, page_icon="N", layout="wide")
+
+
+def get_api_key() -> Optional[str]:
+    """Read the API key from Streamlit secrets first, then the environment."""
+    try:
+        secret_key = st.secrets.get("NVIDIA_API_KEY")
+    except Exception:
+        secret_key = None
+    return secret_key or os.getenv("NVIDIA_API_KEY")
+
+
+API_KEY = get_api_key()
+
 st.markdown(
     """
     <style>
-
-    .stApp {
-        background-color: #0f1117;
-        color: white;
-    }
-
-    h1, h2, h3 {
-        color: white;
-    }
-
-    .stButton > button {
-        background-color: #4CAF50;
-        color: white;
-        border-radius: 10px;
-        padding: 10px 20px;
-        border: none;
-        font-weight: bold;
-    }
-
-    .stButton > button:hover {
-        background-color: #45a049;
-    }
-
+    .stApp { background: #0f1117; }
+    .stButton > button { border-radius: 8px; font-weight: 600; }
+    .novamind-note { color: #aab4c3; font-size: 0.9rem; }
     </style>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
-# =========================================================
-# SIDEBAR
-# =========================================================
-st.sidebar.title("🚀 NovaMind AI")
+st.title(APP_NAME)
+st.caption("A practical AI workspace for study support, career feedback, document analysis, and personal insights.")
 
-mode = st.sidebar.radio(
-    "Select Module",
-    [
-        "🎓 Education",
-        "💼 Career",
-        "💰 Finance",
-        "📄 Analyzer",
-        "📊 Dashboard"
-    ]
-)
+if not API_KEY:
+    st.warning("NVIDIA_API_KEY is not configured. Add it to Streamlit secrets or a local .env file before using AI features.")
 
-# =========================================================
-# SESSION STATE
-# =========================================================
+
 if "memory" not in st.session_state:
-    st.session_state.memory = {
-        "Education": [],
-        "Career": [],
-        "Finance": [],
-        "Analyzer": []
-    }
-
+    st.session_state.memory = {module: [] for module in ("Education", "Career", "Finance", "Analyzer")}
 if "usage" not in st.session_state:
     st.session_state.usage = []
+if "results" not in st.session_state:
+    st.session_state.results = {}
 
-# =========================================================
-# AI FUNCTION
-# =========================================================
-def call_ai(prompt):
 
-    url = "https://integrate.api.nvidia.com/v1/chat/completions"
+def call_ai(prompt: str, system_message: str = "You are a professional AI assistant. Give structured, clear, and actionable responses.") -> str:
+    """Call the NVIDIA-compatible chat endpoint and return a user-safe message."""
+    if not API_KEY:
+        return "AI is unavailable because NVIDIA_API_KEY is not configured."
 
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    # ✅ WORKING MODEL
     payload = {
-        "model": "meta/llama-3.1-70b-instruct",
+        "model": DEFAULT_MODEL,
         "messages": [
-            {
-                "role": "system",
-                "content": "You are a professional AI assistant. Give structured and clear responses."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt[:MAX_INPUT_CHARS]},
         ],
-        "temperature": 0.7,
-        "max_tokens": 700
+        "temperature": 0.5,
+        "max_tokens": 900,
     }
+    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
 
     try:
-
-        with st.spinner("🤖 AI is thinking..."):
-            response = requests.post(
-                url,
-                headers=headers,
-                json=payload,
-                timeout=60
-            )
-
-        if response.status_code != 200:
-            return f"❌ API ERROR {response.status_code}: {response.text}"
-
+        with st.spinner("AI is preparing your response..."):
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+        response.raise_for_status()
         data = response.json()
+        choices = data.get("choices", [])
+        if choices and choices[0].get("message", {}).get("content"):
+            return choices[0]["message"]["content"]
+        return "The AI service returned an unexpected response format."
+    except requests.RequestException as exc:
+        return f"The AI request failed: {exc}"
+    except (ValueError, KeyError, IndexError) as exc:
+        return f"The AI response could not be read: {exc}"
 
-        # ✅ SAFER RESPONSE HANDLING
-        if "choices" in data:
-            return data["choices"][0]["message"]["content"]
 
-        return "❌ Invalid API response"
-
-    except Exception as e:
-        return f"❌ ERROR: {str(e)}"
-
-# =========================================================
-# FILE READER
-# =========================================================
-def read_file(file):
-
-    if not file:
+def read_file(uploaded_file) -> str:
+    """Extract text from supported uploads without executing their contents."""
+    if not uploaded_file:
         return ""
-
     try:
+        file_type = uploaded_file.type or ""
+        if file_type == "application/pdf":
+            reader = PdfReader(uploaded_file)
+            return "\n".join(page.extract_text() or "" for page in reader.pages)
+        if file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            document = Document(uploaded_file)
+            return "\n".join(paragraph.text for paragraph in document.paragraphs)
+        if file_type.startswith("text/") or uploaded_file.name.lower().endswith((".txt", ".md", ".csv")):
+            return uploaded_file.getvalue().decode("utf-8", errors="ignore")
+        if file_type.startswith("image/"):
+            return "The user uploaded an image. Explain what can be inferred from it and state any limitations."
+        return "Unsupported file type. Please upload PDF, DOCX, TXT, Markdown, CSV, or an image."
+    except Exception as exc:
+        return f"The file could not be read safely: {exc}"
 
-        # PDF
-        if file.type == "application/pdf":
 
-            reader = PyPDF2.PdfReader(file)
-            text = ""
-
-            for page in reader.pages:
-                extracted = page.extract_text()
-                if extracted:
-                    text += extracted + "\n"
-
-            return text
-
-        # DOCX
-        elif file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-
-            doc = Document(file)
-            return "\n".join([p.text for p in doc.paragraphs])
-
-        # TXT
-        elif file.type == "text/plain":
-            return file.read().decode("utf-8", errors="ignore")
-
-        # IMAGE
-        elif "image" in file.type:
-            return "User uploaded an image. Analyze and describe it professionally."
-
-        return "Unsupported file type"
-
-    except Exception as e:
-        return f"Error reading file: {str(e)}"
-
-# =========================================================
-# PDF GENERATOR
-# =========================================================
-def pdf_download(text):
-
+def generate_pdf(text: str, title: str = "NovaMind AI Report") -> io.BytesIO:
+    """Create a downloadable plain-text report as a PDF."""
     buffer = io.BytesIO()
-
-    doc = SimpleDocTemplate(
+    document = SimpleDocTemplate(
         buffer,
         pagesize=letter,
-        rightMargin=40,
-        leftMargin=40,
-        topMargin=40,
-        bottomMargin=40
+        rightMargin=0.6 * inch,
+        leftMargin=0.6 * inch,
+        topMargin=0.6 * inch,
+        bottomMargin=0.6 * inch,
     )
-
     styles = getSampleStyleSheet()
-
-    title_style = ParagraphStyle(
-        name="Title",
-        parent=styles["Heading1"],
-        alignment=TA_CENTER,
-        spaceAfter=20
-    )
-
-    body_style = styles["Normal"]
-
-    elements = []
-
-    elements.append(Paragraph("NovaMind AI Report", title_style))
-    elements.append(Spacer(1, 20))
-
-    cleaned_text = (
-        text
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
-
-    for line in cleaned_text.split("\n"):
-
-        line = line.strip()
-
+    title_style = ParagraphStyle("ReportTitle", parent=styles["Heading1"], alignment=TA_CENTER, spaceAfter=16)
+    body_style = styles["BodyText"]
+    elements = [Paragraph(title, title_style)]
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
         if line:
-            elements.append(Paragraph(line, body_style))
-            elements.append(Spacer(1, 8))
-
-    doc.build(elements)
-
+            safe_line = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            elements.extend([Paragraph(safe_line, body_style), Spacer(1, 6)])
+    document.build(elements)
     buffer.seek(0)
-
     return buffer
 
-# =========================================================
-# MEMORY CHAT
-# =========================================================
-def memory_chat(module, user_input):
 
-    history = "\n".join(st.session_state.memory[module][-4:])
+def record_result(module: str, result: str) -> None:
+    st.session_state.results[module] = result
+    st.session_state.usage.append(module)
 
-    prompt = f"""
-    Previous Conversation:
-    {history}
 
-    User Input:
-    {user_input}
-    """
-
-    response = call_ai(prompt)
-
-    st.session_state.memory[module].append(f"User: {user_input}")
-    st.session_state.memory[module].append(f"AI: {response}")
-
-    return response
-
-# =========================================================
-# CHATBOT
-# =========================================================
-def chatbot(module):
-
-    st.markdown("## 💬 Chat with AI")
-
-    question = st.text_input("Ask anything")
-
-    if st.button("Ask AI"):
-
-        if question:
-
-            response = memory_chat(module, question)
-
-            st.success("Response Generated")
-            st.write(response)
-
-# =========================================================
-# EDUCATION MODULE
-# =========================================================
-if mode == "🎓 Education":
-
-    st.header("🎓 Education AI")
-
-    file = st.file_uploader(
-        "Upload Notes",
-        type=["pdf", "docx", "txt", "png", "jpg"]
-    )
-
-    question = st.text_area("Ask Question")
-
-    if st.button("Get Answer"):
-
-        content = read_file(file)
-
-        result = memory_chat(
-            "Education",
-            content + "\n" + question
-        )
-
-        st.markdown("### 📘 Answer")
+def render_chat(module: str) -> None:
+    st.subheader("Ask a follow-up question")
+    question = st.text_input("Question", key=f"chat_{module}")
+    if st.button("Ask AI", key=f"ask_{module}") and question.strip():
+        history = "\n".join(st.session_state.memory[module][-6:])
+        result = call_ai(f"Conversation context:\n{history}\n\nNew question:\n{question}")
+        st.session_state.memory[module].extend([f"User: {question}", f"AI: {result}"])
         st.write(result)
 
-        st.download_button(
-            "⬇️ Download PDF Report",
-            pdf_download(result),
-            file_name="Education_Report.pdf"
-        )
 
-        st.session_state.usage.append("Education")
-
-    chatbot("Education")
-
-# =========================================================
-# CAREER MODULE
-# =========================================================
-elif mode == "💼 Career":
-
-    st.header("💼 Career AI")
-
-    file = st.file_uploader(
-        "Upload Resume",
-        type=["pdf", "docx", "txt"]
-    )
-
-    role = st.text_input("Target Role")
-
-    if st.button("Analyze Resume"):
-
-        content = read_file(file)
-
-        prompt = f"""
-        Analyze this resume for the role: {role}
-
-        Give:
-        1. Resume Score
-        2. Strengths
-        3. Weaknesses
-        4. Missing Skills
-        5. ATS Improvement Tips
-
-        Resume:
-        {content}
-        """
-
-        result = memory_chat("Career", prompt)
-
-        st.markdown("### 💼 Career Analysis")
+def render_result(module: str, filename: str) -> None:
+    result = st.session_state.results.get(module)
+    if result:
+        st.markdown("### Result")
         st.write(result)
+        st.download_button("Download PDF report", generate_pdf(result, f"{APP_NAME} — {module}"), filename, "application/pdf", key=f"download_{module}")
 
-        st.download_button(
-            "⬇️ Download PDF Report",
-            pdf_download(result),
-            file_name="Career_Report.pdf"
-        )
 
-        st.session_state.usage.append("Career")
+with st.sidebar:
+    st.header(APP_NAME)
+    mode = st.radio("Select module", ["Education", "Career", "Finance", "Analyzer", "Dashboard"])
+    st.divider()
+    st.caption(f"Model: {DEFAULT_MODEL}")
 
-    chatbot("Career")
+if mode == "Education":
+    st.header("Education assistant")
+    uploaded = st.file_uploader("Upload notes or study material", type=["pdf", "docx", "txt", "md", "csv", "png", "jpg", "jpeg"])
+    question = st.text_area("What would you like to understand?")
+    if st.button("Get answer", key="education_submit"):
+        content = read_file(uploaded)
+        if not content.strip() and not question.strip():
+            st.info("Upload material or enter a question first.")
+        else:
+            result = call_ai(f"Summarize the material, explain difficult points, and answer the question.\n\nMaterial:\n{content}\n\nQuestion:\n{question}")
+            record_result("Education", result)
+    render_result("Education", "education_report.pdf")
+    render_chat("Education")
 
-# =========================================================
-# FINANCE MODULE
-# =========================================================
-elif mode == "💰 Finance":
+elif mode == "Career":
+    st.header("Career assistant")
+    uploaded = st.file_uploader("Upload your resume", type=["pdf", "docx", "txt", "md"])
+    role = st.text_input("Target role")
+    if st.button("Analyze resume", key="career_submit"):
+        content = read_file(uploaded)
+        if not content.strip():
+            st.info("Upload a resume first.")
+        else:
+            result = call_ai(f"Review this resume for the target role '{role or 'general applications'}'. Provide a score, strengths, weaknesses, missing skills, ATS improvements, and rewritten examples.\n\nResume:\n{content}", "You are an experienced recruiter and resume reviewer. Be constructive and specific.")
+            record_result("Career", result)
+    render_result("Career", "career_report.pdf")
+    render_chat("Career")
 
-    st.header("💰 Finance AI")
+elif mode == "Finance":
+    st.header("Finance document assistant")
+    st.warning("This tool provides general document analysis, not personalized financial advice.")
+    uploaded = st.file_uploader("Upload a financial document", type=["pdf", "txt", "md", "csv"])
+    question = st.text_area("What would you like analyzed?")
+    if st.button("Analyze document", key="finance_submit"):
+        content = read_file(uploaded)
+        if not content.strip() and not question.strip():
+            st.info("Upload a document or enter a question first.")
+        else:
+            result = call_ai(f"Analyze the document and explain assumptions, trends, risks, and unanswered questions. Do not present the result as personalized financial advice.\n\nDocument:\n{content}\n\nQuestion:\n{question}")
+            record_result("Finance", result)
+    render_result("Finance", "finance_report.pdf")
+    render_chat("Finance")
 
-    file = st.file_uploader(
-        "Upload Financial File",
-        type=["pdf", "txt"]
-    )
+elif mode == "Analyzer":
+    st.header("File analyzer")
+    uploaded = st.file_uploader("Upload a file", type=["pdf", "docx", "txt", "md", "csv", "png", "jpg", "jpeg"])
+    if st.button("Analyze file", key="analyzer_submit"):
+        content = read_file(uploaded)
+        if not content.strip():
+            st.info("Upload a supported file first.")
+        else:
+            result = call_ai(f"Analyze this uploaded content. Return a concise summary, key points, possible issues, and recommended next actions.\n\nContent:\n{content}")
+            record_result("Analyzer", result)
+    render_result("Analyzer", "analysis_report.pdf")
+    render_chat("Analyzer")
 
-    question = st.text_area("Ask Finance Question")
-
-    if st.button("Get Advice"):
-
-        content = read_file(file)
-
-        result = memory_chat(
-            "Finance",
-            content + "\n" + question
-        )
-
-        st.markdown("### 💰 Finance Advice")
-        st.write(result)
-
-        st.download_button(
-            "⬇️ Download PDF Report",
-            pdf_download(result),
-            file_name="Finance_Report.pdf"
-        )
-
-        st.session_state.usage.append("Finance")
-
-    chatbot("Finance")
-
-# =========================================================
-# ANALYZER MODULE
-# =========================================================
-elif mode == "📄 Analyzer":
-
-    st.header("📄 File Analyzer AI")
-
-    file = st.file_uploader(
-        "Upload File",
-        type=["pdf", "docx", "txt", "png", "jpg"]
-    )
-
-    if st.button("Analyze File"):
-
-        content = read_file(file)
-
-        result = memory_chat("Analyzer", content)
-
-        st.markdown("### 📊 Analysis Result")
-        st.write(result)
-
-        st.download_button(
-            "⬇️ Download PDF Report",
-            pdf_download(result),
-            file_name="Analysis_Report.pdf"
-        )
-
-        st.session_state.usage.append("Analyzer")
-
-    chatbot("Analyzer")
-
-# =========================================================
-# DASHBOARD
-# =========================================================
-elif mode == "📊 Dashboard":
-
-    st.header("📊 Analytics Dashboard")
-
+else:
+    st.header("Usage dashboard")
     if st.session_state.usage:
-
-        df = pd.DataFrame(
-            st.session_state.usage,
-            columns=["Feature"]
-        )
-
-        counts = df["Feature"].value_counts()
-
-        st.bar_chart(counts)
-
-        st.write(counts)
-
-        st.metric("Total Usage", len(st.session_state.usage))
-
+        usage = pd.Series(st.session_state.usage, name="Feature").value_counts()
+        st.metric("Total analyses", int(usage.sum()))
+        st.bar_chart(usage)
+        st.dataframe(usage.rename("Uses"), use_container_width=True)
     else:
-        st.info("No usage yet")
+        st.info("Your usage dashboard will appear after the first analysis.")
 
-# =========================================================
-# FOOTER
-# =========================================================
-st.markdown("---")
-
-st.markdown(
-    """
-    <center>
-    👨‍💻 Created by <b>MOHAMMED.USMAN</b> 🚀
-    </center>
-    """,
-    unsafe_allow_html=True
-)
+st.divider()
+st.caption("Built by Mohammed Usman • NovaMind AI")
