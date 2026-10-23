@@ -77,6 +77,12 @@ CATEGORY_GUIDE = "\n".join(
 
 DEFAULT_SYSTEM = "You are a professional AI assistant. Give structured, clear, and actionable responses."
 
+# Modules whose answers must always end with a safety warning.
+MODULE_WARNINGS = {
+    "Finance": "\u26a0\ufe0f This is general information, not financial advice. Do your own research - investments carry risk of loss.",
+    "Health & Wellness": "\u26a0\ufe0f This is general information, not medical advice. Please consult a qualified doctor for personal medical concerns.",
+}
+
 
 def router_system_message(module_label: str) -> str:
     """System message that keeps answers on-category and redirects off-category questions."""
@@ -89,6 +95,18 @@ def router_system_message(module_label: str) -> str:
         "'👉 This fits better in the <module name> module - open it from the sidebar for the full tools.'\n"
         "3. If it does not fit any specific module, answer briefly and suggest 💬 General Chat.\n"
         "Keep the redirection suggestion to one sentence."
+    )
+
+
+def module_system_message(module_label: str) -> str:
+    """Router message plus the mandatory closing warning for sensitive modules."""
+    base = router_system_message(module_label)
+    warning = next((text for key, text in MODULE_WARNINGS.items() if key in module_label), None)
+    if not warning:
+        return base
+    return base + (
+        f"\n4. IMPORTANT: End every single answer with this exact warning line on its own line: \"{warning}\" "
+        "Never skip it, even for short answers."
     )
 
 
@@ -185,7 +203,7 @@ def record_result(module: str, result: str) -> None:
 def render_chat(module: str, system_message: Optional[str] = None) -> None:
     """Per-module follow-up chat with session memory and category redirection."""
     label = MODULE_LABELS[module]
-    system_message = system_message or router_system_message(label)
+    system_message = system_message or module_system_message(label)
     st.subheader("💬 Chat with AI - Ask anything")
     history = st.session_state.memory[module]
     if history:
@@ -255,7 +273,7 @@ elif mode == MODULE_LABELS["Finance"]:
         if not content.strip() and not question.strip():
             st.info("Upload a document or enter a question first.")
         else:
-            result = call_ai(f"Analyze the document and explain assumptions, trends, risks, and unanswered questions. Do not present the result as personalized financial advice.\n\nDocument:\n{content}\n\nQuestion:\n{question}", router_system_message(MODULE_LABELS["Finance"]))
+            result = call_ai(f"Analyze the document and explain assumptions, trends, risks, and unanswered questions. Do not present the result as personalized financial advice.\n\nDocument:\n{content}\n\nQuestion:\n{question}", module_system_message(MODULE_LABELS["Finance"]))
             record_result("Finance", result)
     render_result("Finance", "finance_report.pdf")
     render_chat("Finance")
@@ -270,7 +288,7 @@ elif mode == MODULE_LABELS["Health & Wellness"]:
         if not content.strip() and not question.strip():
             st.info("Upload a document or enter a question first.")
         else:
-            result = call_ai(f"Give practical, general wellbeing guidance based on the material and question. Do not present the result as medical advice.\n\nMaterial:\n{content}\n\nQuestion:\n{question}", router_system_message(MODULE_LABELS["Health & Wellness"]))
+            result = call_ai(f"Give practical, general wellbeing guidance based on the material and question. Do not present the result as medical advice.\n\nMaterial:\n{content}\n\nQuestion:\n{question}", module_system_message(MODULE_LABELS["Health & Wellness"]))
             record_result("Health & Wellness", result)
     render_result("Health & Wellness", "wellness_report.pdf")
     render_chat("Health & Wellness")
