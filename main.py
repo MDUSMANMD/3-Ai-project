@@ -17,7 +17,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 load_dotenv()
 
 APP_NAME = "NovaMind AI"
-API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+API_URL = os.getenv("NOVAMIND_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
 DEFAULT_MODEL = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct")
 MAX_INPUT_CHARS = int(os.getenv("NOVAMIND_MAX_INPUT_CHARS", "24000"))
 
@@ -108,6 +108,16 @@ def module_system_message(module_label: str) -> str:
         f"\n4. IMPORTANT: End every single answer with this exact warning line on its own line: \"{warning}\" "
         "Never skip it, even for short answers."
     )
+
+
+def ensure_closing_warning(module: str, result: str) -> str:
+    """Deterministically append the module's safety warning when the AI answer omits it."""
+    warning = MODULE_WARNINGS.get(module)
+    if not warning or not result.strip():
+        return result
+    if warning in result:
+        return result
+    return result.rstrip() + "\n\n" + warning
 
 
 if "memory" not in st.session_state:
@@ -216,7 +226,7 @@ def render_chat(module: str, system_message: Optional[str] = None) -> None:
     question = st.text_input("Question", key=f"chat_{module}")
     if st.button("Ask AI", key=f"ask_{module}") and question.strip():
         context = "\n".join(history[-6:])
-        result = call_ai(f"Conversation context:\n{context}\n\nNew question:\n{question}", system_message)
+        result = ensure_closing_warning(module, call_ai(f"Conversation context:\n{context}\n\nNew question:\n{question}", system_message))
         st.session_state.memory[module].extend([f"User: {question}", f"AI: {result}"])
         st.write(result)
 
@@ -273,7 +283,7 @@ elif mode == MODULE_LABELS["Finance"]:
         if not content.strip() and not question.strip():
             st.info("Upload a document or enter a question first.")
         else:
-            result = call_ai(f"Analyze the document and explain assumptions, trends, risks, and unanswered questions. Do not present the result as personalized financial advice.\n\nDocument:\n{content}\n\nQuestion:\n{question}", module_system_message(MODULE_LABELS["Finance"]))
+            result = ensure_closing_warning("Finance", call_ai(f"Analyze the document and explain assumptions, trends, risks, and unanswered questions. Do not present the result as personalized financial advice.\n\nDocument:\n{content}\n\nQuestion:\n{question}", module_system_message(MODULE_LABELS["Finance"])))
             record_result("Finance", result)
     render_result("Finance", "finance_report.pdf")
     render_chat("Finance")
@@ -288,7 +298,7 @@ elif mode == MODULE_LABELS["Health & Wellness"]:
         if not content.strip() and not question.strip():
             st.info("Upload a document or enter a question first.")
         else:
-            result = call_ai(f"Give practical, general wellbeing guidance based on the material and question. Do not present the result as medical advice.\n\nMaterial:\n{content}\n\nQuestion:\n{question}", module_system_message(MODULE_LABELS["Health & Wellness"]))
+            result = ensure_closing_warning("Health & Wellness", call_ai(f"Give practical, general wellbeing guidance based on the material and question. Do not present the result as medical advice.\n\nMaterial:\n{content}\n\nQuestion:\n{question}", module_system_message(MODULE_LABELS["Health & Wellness"])))
             record_result("Health & Wellness", result)
     render_result("Health & Wellness", "wellness_report.pdf")
     render_chat("Health & Wellness")
