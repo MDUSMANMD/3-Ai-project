@@ -38,7 +38,6 @@ API_KEY = get_api_key()
 st.markdown(
     """
     <style>
-    .stApp { background: #0f1117; }
     .stButton > button { border-radius: 8px; font-weight: 600; }
     .novamind-note { color: #aab4c3; font-size: 0.9rem; }
     </style>
